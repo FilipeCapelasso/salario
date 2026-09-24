@@ -1,8 +1,12 @@
 {
   "name": "financas-telegram-bot",
-  "version": "1.0.0",
-  "description": "Bot do Telegram para registrar compras, retiradas, entradas e acréscimos no Supabase",
+  "version": "2.0.0",
+  "description": "Bot do Telegram para registrar compras, retiradas, entradas e acréscimos no Supabase (com proteção contra duplicidade)",
   "main": "bot.js",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node bot.js"
   },
