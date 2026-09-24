@@ -1,6 +1,16 @@
--- Rode este script inteiro no SQL Editor do Supabase (Project > SQL Editor > New query > RUN)
+-- =====================================================================
+-- Rode este script INTEIRO no SQL Editor do Supabase
+-- (Project > SQL Editor > New query > cole tudo > RUN).
+-- É seguro rodar de novo quantas vezes quiser: não duplica nada.
+-- Se você já tem dados, eles são mantidos.
+-- IMPORTANTE: rode ANTES de subir o novo site e o novo bot.
+-- =====================================================================
 
 create extension if not exists pgcrypto;
+
+-- ---------------------------------------------------------------------
+-- 1) Tabelas
+-- ---------------------------------------------------------------------
 
 -- Salário e configurações gerais (uma única linha, id sempre = 1)
 create table if not exists settings (
@@ -33,8 +43,46 @@ create table if not exists transactions (
 
 create index if not exists transactions_occurred_on_idx on transactions (occurred_on);
 
--- Segurança: habilita RLS e libera acesso via chave anon (uso pessoal, single-user).
--- Se quiser mais segurança depois, troque estas policies por regras com autenticação.
+-- ---------------------------------------------------------------------
+-- 2) ANTI-DUPLICIDADE
+-- ---------------------------------------------------------------------
+
+-- 2a) Compras/movimentações: cada envio carrega um "client_id" único
+--     (o site gera um por formulário; o bot usa o id da mensagem do Telegram).
+--     Se o mesmo envio chegar duas vezes (duplo clique, reentrega do Telegram,
+--     internet oscilando), o banco recusa a segunda e nada é duplicado.
+--     Registros antigos ficam com client_id vazio, sem problema.
+alter table transactions add column if not exists client_id text;
+create unique index if not exists transactions_client_id_key on transactions (client_id);
+
+-- 2b) Contas fixas: remove as duplicadas que já existem (mantém a mais antiga
+--     de cada nome, ignorando maiúsculas/minúsculas e espaços nas pontas)...
+delete from fixed_bills a
+using fixed_bills b
+where lower(btrim(a.name)) = lower(btrim(b.name))
+  and (coalesce(a.created_at, 'epoch'::timestamptz), a.id)
+    > (coalesce(b.created_at, 'epoch'::timestamptz), b.id);
+
+--     ...e impede que voltem a existir duas contas com o mesmo nome.
+create unique index if not exists fixed_bills_name_key on fixed_bills (lower(btrim(name)));
+
+-- 2c) Valores precisam ser positivos (só vale para novos registros).
+do $$
+begin
+  begin
+    alter table transactions add constraint transactions_amount_positive check (amount > 0) not valid;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter table fixed_bills add constraint fixed_bills_amount_positive check (amount > 0) not valid;
+  exception when duplicate_object then null;
+  end;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 3) Segurança (modo pessoal: acesso liberado pela chave anon)
+--    Para exigir login no site, veja o bloco OPCIONAL no fim do arquivo.
+-- ---------------------------------------------------------------------
 alter table settings enable row level security;
 alter table fixed_bills enable row level security;
 alter table transactions enable row level security;
@@ -48,19 +96,26 @@ create policy "allow all fixed_bills" on fixed_bills for all using (true) with c
 drop policy if exists "allow all transactions" on transactions;
 create policy "allow all transactions" on transactions for all using (true) with check (true);
 
--- Suas 6 contas fixas atuais (edite valores depois direto no site se mudar)
-insert into fixed_bills (name, amount) values
+-- ---------------------------------------------------------------------
+-- 4) Contas fixas iniciais: só entram se a tabela estiver VAZIA.
+--    (Antes, rodar o script de novo duplicava as 6 contas.)
+--    Edite os valores depois direto no site.
+-- ---------------------------------------------------------------------
+insert into fixed_bills (name, amount)
+select v.name, v.amount
+from (values
   ('Faculdade', 170),
   ('Plano de crédito', 30),
   ('Parcela do celular', 418),
   ('Tesouro Direto', 180),
   ('Cartão de crédito', 240),
   ('Programa', 32)
-on conflict do nothing;
+) as v(name, amount)
+where not exists (select 1 from fixed_bills);
 
--- Ativa o Realtime nestas tabelas: é o que faz o site atualizar sozinho
--- quando o bot (ou você em outro dispositivo) registra algo. Seguro rodar
--- de novo caso já tenha rodado antes (ignora "já existe").
+-- ---------------------------------------------------------------------
+-- 5) Realtime: faz o site atualizar sozinho quando o bot registra algo.
+-- ---------------------------------------------------------------------
 do $$
 begin
   begin
@@ -76,3 +131,40 @@ begin
   exception when duplicate_object then null;
   end;
 end $$;
+
+
+-- =====================================================================
+-- OPCIONAL A) Ver possíveis compras duplicadas que JÁ existem no banco
+--    (mesmo tipo, valor, categoria e dia, criadas com até 2 min de diferença).
+--    Copie só este SELECT, rode, confira e apague pelo site o que sobrar.
+-- =====================================================================
+-- select a.occurred_on, a.type, a.category, a.description, a.amount,
+--        a.created_at as primeira, b.created_at as repetida, b.id as id_da_repetida
+-- from transactions a
+-- join transactions b
+--   on a.id <> b.id
+--  and a.type = b.type and a.amount = b.amount
+--  and a.occurred_on = b.occurred_on
+--  and coalesce(a.category,'') = coalesce(b.category,'')
+--  and a.created_at < b.created_at
+--  and b.created_at - a.created_at < interval '2 minutes'
+-- order by a.occurred_on desc;
+
+
+-- =====================================================================
+-- OPCIONAL B) Exigir LOGIN para ver/alterar os dados
+--    Hoje, quem descobrir o endereço do seu site consegue ler e mexer nas
+--    suas finanças (a chave anon é pública). Para trancar:
+--      1. Supabase > Authentication > Users > Add user (seu e-mail e senha)
+--      2. Authentication > Sign In / Providers > desative "Allow new users to sign up"
+--      3. No bot, troque SUPABASE_KEY pela chave "service_role"
+--         (Project Settings > API). NUNCA coloque essa chave no site.
+--      4. No index.html, mude  REQUIRE_LOGIN = false  para  true
+--      5. Rode o bloco abaixo (tire os "-- " do início das linhas).
+-- =====================================================================
+-- drop policy if exists "allow all settings" on settings;
+-- drop policy if exists "allow all fixed_bills" on fixed_bills;
+-- drop policy if exists "allow all transactions" on transactions;
+-- create policy "auth settings" on settings for all to authenticated using (true) with check (true);
+-- create policy "auth fixed_bills" on fixed_bills for all to authenticated using (true) with check (true);
+-- create policy "auth transactions" on transactions for all to authenticated using (true) with check (true);
