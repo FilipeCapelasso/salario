@@ -33,7 +33,8 @@ label{display:block;font-size:.8rem;color:var(--mute);margin:0 0 6px;font-weight
 .months button{width:36px;height:36px;border-radius:50%;font-size:1.2rem;color:var(--mute)}
 .months button:hover{background:var(--s2);color:var(--ink)}
 .months .now{width:auto;padding:0 12px;font-size:.78rem;font-weight:700;color:var(--violet)}
-.months span{min-width:150px;text-align:center;font-weight:700;text-transform:capitalize}
+.months .mbtn{min-width:150px;text-align:center;font-weight:700;text-transform:capitalize;background:none;border:0;color:inherit;font:700 inherit;padding:6px 10px;border-radius:10px}
+.months .mbtn:hover{background:var(--s2)}
 .sync{display:flex;align-items:center;gap:8px;font-size:.8rem;color:var(--mute)}
 .sync i{width:9px;height:9px;border-radius:50%;background:var(--amber)}
 .sync i.on{background:var(--mint);box-shadow:0 0 0 4px #3ddc9722}
@@ -99,9 +100,19 @@ label{display:block;font-size:.8rem;color:var(--mute);margin:0 0 6px;font-weight
 .bar{margin-bottom:12px}
 .bar div{display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:5px}
 .bar i{display:block;height:8px;border-radius:99px;background:var(--coral)}
-.bill{display:grid;grid-template-columns:44px 1fr 96px 28px;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
-.bill .off{color:var(--mute);text-decoration:line-through}
+.bill{display:grid;grid-template-columns:34px 1fr 88px 28px 28px;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.bill .who.off b{color:var(--mute);text-decoration:line-through}
+.bill .who.soon b{color:var(--mute)}
+.bill .who small.warn{color:var(--amber)}
 .bill .amt{text-align:right;padding:7px 9px;font-family:Sora;font-size:.85rem}
+.bill .doneicon{width:34px;text-align:center;font-size:1.05rem}
+.bill .paidcell{text-align:right;font:600 .88rem Sora;color:var(--mute);white-space:nowrap}
+.bill.done{opacity:.82}
+.addb2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+details.donewrap summary{cursor:pointer;color:var(--violet);font-weight:700;font-size:.82rem;list-style:none}
+details.donewrap summary::-webkit-details-marker{display:none}
+details.donewrap summary::before{content:'▸ ';display:inline-block;transition:transform .15s}
+details.donewrap[open] summary::before{transform:rotate(90deg)}
 .sw{appearance:none;width:38px;height:22px;padding:0;border-radius:99px;position:relative;cursor:pointer}
 .sw::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--mute);transition:left .2s}
 .sw:checked{background:var(--violet);border-color:var(--violet)}.sw:checked::after{left:18px;background:#fff}
@@ -129,8 +140,9 @@ dialog p{color:var(--mute);margin:0}
   .cols{grid-template-columns:1fr;grid-template-areas:"form" "led" "cats" "bills"}
   .stats{grid-template-columns:1fr 1fr}
   .hero{padding:24px 20px}
-  .months span{min-width:110px}
+  .months .mbtn{min-width:110px}
   .item{grid-template-columns:36px 1fr auto 28px 28px;gap:8px}
+  .bill{grid-template-columns:32px 1fr auto 26px 26px;gap:8px}
   .ic{width:36px;height:36px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -156,7 +168,8 @@ dialog p{color:var(--mute);margin:0}
     <div class="brand"><b>Meu Financeiro</b><small>Grupo Star Motos · painel pessoal</small></div>
     <nav class="months" aria-label="Mês">
       <button onclick="shift(-1)" aria-label="Mês anterior">‹</button>
-      <span id="month-label"></span>
+      <button type="button" class="mbtn" id="month-label" onclick="openJump()" aria-label="Escolher outro mês" title="Escolher outro mês"></button>
+      <input type="month" id="jump-month" aria-hidden="true" tabindex="-1" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" onchange="jumpMonth(this.value)">
       <button class="now" id="btn-now" onclick="goToday()" hidden>Hoje</button>
       <button onclick="shift(1)" aria-label="Próximo mês">›</button>
     </nav>
@@ -221,8 +234,19 @@ dialog p{color:var(--mute);margin:0}
         <input id="nb-amt" inputmode="decimal" placeholder="Valor" aria-label="Valor da conta" onkeydown="if(event.key==='Enter')addBill()">
         <button id="nb-btn" onclick="addBill()">Adicionar</button>
       </div>
-      <p class="hint">Se o nome já existir, você escolhe se quer atualizar o valor.</p>
+      <div class="addb2">
+        <input id="nb-total" inputmode="numeric" placeholder="Parcelas (opcional)" aria-label="Número de parcelas" maxlength="3" oninput="updateNbHint()" onkeydown="if(event.key==='Enter')addBill()">
+        <input id="nb-due" inputmode="numeric" placeholder="Dia venc. (opcional)" aria-label="Dia de vencimento" maxlength="2" onkeydown="if(event.key==='Enter')addBill()">
+      </div>
+      <p class="hint" id="nb-hint" hidden></p>
+      <p class="hint">Tem prazo (financiamento, parcelado)? Informe as parcelas: a conta some sozinha quando quitar. Se o nome já existir, você escolhe se quer atualizar.</p>
       <div class="tot"><span>Total ativo</span><span class="num" id="bills-total">—</span></div>
+      <div id="bills-done-wrap" hidden style="margin-top:12px">
+        <details class="donewrap">
+          <summary>Contas quitadas</summary>
+          <div id="bills-done" style="margin-top:6px"></div>
+        </details>
+      </div>
     </section>
   </div>
 </div>
@@ -250,6 +274,23 @@ dialog p{color:var(--mute);margin:0}
     <div class="fld"><label for="e-desc">Descrição</label><input id="e-desc" autocomplete="off" maxlength="120"></div>
     <button class="cta" type="submit" id="e-save">Salvar alterações</button>
     <button class="cta ghost" type="button" onclick="$('edlg').close()">Cancelar</button>
+  </form>
+</dialog>
+
+<dialog id="bdlg" aria-labelledby="bdlg-t">
+  <form onsubmit="saveBillDetails(event)" novalidate>
+    <h2 id="bdlg-t">Detalhes da conta</h2>
+    <p class="verdict" id="bd-name" style="margin:0 0 14px"></p>
+    <label for="bd-amt">Valor (R$)</label>
+    <input id="bd-amt" inputmode="decimal" autocomplete="off" required>
+    <div class="g2 fld">
+      <div><label for="bd-total">Parcelas (opcional)</label><input id="bd-total" inputmode="numeric" placeholder="Sem prazo" oninput="updateBillHint()"></div>
+      <div><label for="bd-start">Começa em</label><input id="bd-start" type="month" oninput="updateBillHint()" required></div>
+    </div>
+    <div class="fld"><label for="bd-due">Dia de vencimento (opcional)</label><input id="bd-due" inputmode="numeric" placeholder="Ex.: 10" maxlength="2"></div>
+    <p class="hint" id="bd-hint"></p>
+    <button class="cta" type="submit">Salvar</button>
+    <button class="cta ghost" type="button" onclick="$('bdlg').close()">Cancelar</button>
   </form>
 </dialog>
 
@@ -355,7 +396,30 @@ const friendly = (e) => {
 };
 
 const sum = (t) => tx.filter((x) => x.type === t).reduce((s, x) => s + Number(x.amount), 0);
-const billsTotal = () => bills.filter((b) => b.active).reduce((s, b) => s + Number(b.amount), 0);
+
+/* ---------- parcelas e vencimento das contas fixas ----------
+   Cada conta tem um mês de início (start_month) e, opcionalmente, um total
+   de parcelas. A "situação" dela em qualquer mês é só matemática de datas —
+   por isso uma dívida quitada some sozinha das contas ativas dos meses
+   seguintes, sem precisar de nenhuma tarefa agendada rodando no servidor. */
+const ymToIndex = (s) => { const [y, m] = s.split('-').map(Number); return y * 12 + (m - 1); };
+const indexToYm = (idx) => `${Math.floor(idx / 12)}-${pad((idx % 12) + 1)}`;
+const monthShort = (ymStr) => {
+  const [y, m] = ymStr.slice(0, 7).split('-').map(Number);
+  return cap(new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }).replace('.', ''));
+};
+function billStatus(b, ymStr) {
+  const total = b.installments_total;
+  const diff = ymToIndex(ymStr) - ymToIndex(b.start_month.slice(0, 7));
+  const started = diff >= 0;
+  const finished = total != null && diff >= total;
+  const num = started && !finished ? diff + 1 : null;
+  return { started, finished, num, diff };
+}
+const billFinishYm = (b) => indexToYm(ymToIndex(b.start_month.slice(0, 7)) + b.installments_total - 1);
+const billsTotalFor = (ymStr) => bills
+  .filter((b) => b.active && billStatus(b, ymStr).started && !billStatus(b, ymStr).finished)
+  .reduce((s, b) => s + Number(b.amount), 0);
 
 /* ---------- categorias (sem duplicar por maiúscula/acento) ---------- */
 function catList(t) {
@@ -384,6 +448,14 @@ function shift(n) {
   setDate(); loadAll();
 }
 function goToday() { ym = iso(new Date()).slice(0, 7); setDate(); loadAll(); }
+function openJump() {
+  const el = $('jump-month');
+  el.value = ym;
+  if (el.showPicker) { try { el.showPicker(); return; } catch (e) {} }
+  el.style.pointerEvents = 'auto'; el.style.opacity = '1'; el.focus();
+  setTimeout(() => { el.style.pointerEvents = 'none'; el.style.opacity = '0'; }, 300);
+}
+function jumpMonth(v) { if (!v || v === ym) return; ym = v; setDate(); loadAll(); }
 
 let refreshTimer = null;
 function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(loadAll, 200); }
@@ -440,7 +512,7 @@ function renderHero() {
   const isNow = ym === iso(new Date()).slice(0, 7);
   $('hero-k').textContent = isNow ? 'Sobra este mês' : 'Sobra em ' + new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long' });
   const inc = salary + sum('entrada') + sum('acrescimo');
-  const b = billsTotal(), c = sum('compra'), r = sum('retirada');
+  const b = billsTotalFor(ym), c = sum('compra'), r = sum('retirada');
   const bal = inc - b - c - r, base = Math.max(inc, b + c + r) || 1;
   const el = $('balance');
   el.textContent = brl(bal); el.className = 'big ' + (bal >= 0 ? 'pos' : 'neg');
@@ -518,14 +590,55 @@ function renderCats() {
     : '<p class="empty">Nenhuma compra neste mês.</p>';
 }
 
-function renderBills() {
-  $('bills').innerHTML = bills.length ? bills.map((b) => `<div class="bill">
+function billSubtitle(b, st) {
+  const parts = [];
+  if (b.installments_total) {
+    if (!st.started) parts.push(`Começa em ${monthShort(b.start_month)}`);
+    else if (st.num === b.installments_total) parts.push('Última parcela 🎉');
+    else parts.push(`Parcela ${st.num}/${b.installments_total}`);
+  }
+  if (b.due_day) parts.push(`Vence dia ${b.due_day}`);
+  return parts.join(' · ');
+}
+function billRowHtml(b, st) {
+  const cls = !b.active ? 'off' : (!st.started ? 'soon' : '');
+  const sub = billSubtitle(b, st);
+  return `<div class="bill">
     <input type="checkbox" class="sw" ${b.active ? 'checked' : ''} aria-label="Conta ativa: ${esc(b.name)}" onchange="upBill('${b.id}',{active:this.checked})">
-    <span class="${b.active ? '' : 'off'}">${esc(b.name)}</span>
+    <div class="who ${cls}"><b>${esc(b.name)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div>
     <input class="amt" inputmode="decimal" value="${Number(b.amount).toFixed(2)}" aria-label="Valor de ${esc(b.name)}" onchange="upBillAmount('${b.id}',this)">
-    <button class="x" aria-label="Excluir ${esc(b.name)}" onclick="delBill('${b.id}')">✕</button></div>`).join('')
+    <button class="x ed" aria-label="Detalhes de ${esc(b.name)}" title="Parcelas e vencimento" onclick="openBillDetails('${b.id}')">✎</button>
+    <button class="x" aria-label="Excluir ${esc(b.name)}" onclick="delBill('${b.id}')">✕</button></div>`;
+}
+function billDoneHtml(b) {
+  const paid = Number(b.amount) * b.installments_total;
+  return `<div class="bill done">
+    <span class="doneicon" aria-hidden="true">✅</span>
+    <div class="who"><b>${esc(b.name)}</b><small>Quitada em ${monthShort(billFinishYm(b))} · ${b.installments_total}x de ${brl(b.amount)}</small></div>
+    <span class="paidcell">${brl(paid)}</span>
+    <button class="x ed" aria-label="Refazer ${esc(b.name)}" title="Começar um novo parcelamento com esse nome" onclick="redoBill('${b.id}')">🔁</button>
+    <button class="x" aria-label="Excluir ${esc(b.name)}" onclick="delBill('${b.id}')">✕</button></div>`;
+}
+function renderBills() {
+  const rows = bills.map((b) => ({ b, st: billStatus(b, ym) }));
+  const current = rows.filter((r) => !r.st.finished);
+  const done = rows.filter((r) => r.st.finished).sort((x, y) => billFinishYm(y.b).localeCompare(billFinishYm(x.b)));
+
+  current.sort((x, y) => {
+    const rank = (r) => (!r.b.active ? 2 : (!r.st.started ? 1 : 0));
+    const rx = rank(x), ry = rank(y);
+    if (rx !== ry) return rx - ry;
+    const dx = x.b.due_day ?? 99, dy = y.b.due_day ?? 99;
+    if (dx !== dy) return dx - dy;
+    return x.b.name.localeCompare(y.b.name, 'pt-BR');
+  });
+
+  $('bills').innerHTML = current.length ? current.map((r) => billRowHtml(r.b, r.st)).join('')
     : '<p class="empty">Nenhuma conta fixa. Adicione a primeira abaixo.</p>';
-  $('bills-total').textContent = brl(billsTotal());
+  $('bills-total').textContent = brl(billsTotalFor(ym));
+
+  $('bills-done-wrap').hidden = done.length === 0;
+  $('bills-done').innerHTML = done.map((r) => billDoneHtml(r.b)).join('');
 }
 
 /* ---------- movimentações ---------- */
@@ -661,15 +774,49 @@ async function delBill(id) {
   });
   loadAll();
 }
+function parseInstallments(raw) {
+  const s = raw.trim();
+  if (!s) return { ok: true, value: null };
+  const n = parseInt(s, 10);
+  return Number.isInteger(n) && n >= 1 && n <= 600 ? { ok: true, value: n } : { ok: false };
+}
+function parseDueDay(raw) {
+  const s = raw.trim();
+  if (!s) return { ok: true, value: null };
+  const n = parseInt(s, 10);
+  return Number.isInteger(n) && n >= 1 && n <= 31 ? { ok: true, value: n } : { ok: false };
+}
+function updateNbHint() {
+  const p = parseInstallments($('nb-total').value);
+  const h = $('nb-hint');
+  if (p.ok && p.value) {
+    h.textContent = `Última parcela em ${monthShort(indexToYm(ymToIndex(ym) + p.value - 1))}.`;
+    h.hidden = false;
+  } else h.hidden = true;
+}
+
 async function addBill() {
   if (busy.bill) return;
   const name = $('nb-name').value.trim().replace(/\s+/g, ' '), amount = num($('nb-amt').value);
   if (!name || !validAmt(amount)) return toast('Informe o nome e o valor da conta.', { err: 1 });
+  const pTotal = parseInstallments($('nb-total').value);
+  if (!pTotal.ok) return toast('Número de parcelas inválido.', { err: 1 });
+  const pDue = parseDueDay($('nb-due').value);
+  if (!pDue.ok) return toast('Dia de vencimento inválido (use de 1 a 31).', { err: 1 });
 
   busy.bill = true; $('nb-btn').disabled = true;
   try {
     const exists = bills.find((b) => norm(b.name) === norm(name));
-    if (exists) {
+    if (exists && billStatus(exists, ym).finished) {
+      const go = await askConfirm('Essa dívida já foi quitada',
+        `"${exists.name}" foi paga em ${exists.installments_total}x de ${brl(exists.amount)}. Começar um novo parcelamento agora?`, 'Começar de novo');
+      if (!go) return;
+      const { error } = await sb.from('fixed_bills').update({
+        amount, active: true, start_month: ym + '-01', installments_total: pTotal.value, due_day: pDue.value,
+      }).eq('id', exists.id);
+      if (error) throw error;
+      toast(pTotal.value ? `Novo parcelamento iniciado: ${pTotal.value}x.` : 'Conta reativada.');
+    } else if (exists) {
       const go = await askConfirm('Essa conta já existe',
         `"${exists.name}" está cadastrada com ${brl(exists.amount)}. Atualizar para ${brl(amount)}?`, 'Atualizar valor');
       if (!go) return;
@@ -677,17 +824,72 @@ async function addBill() {
       if (error) throw error;
       toast('Conta atualizada.');
     } else {
-      const { error } = await sb.from('fixed_bills').insert({ name, amount });
+      const { error } = await sb.from('fixed_bills').insert({
+        name, amount, start_month: ym + '-01', installments_total: pTotal.value, due_day: pDue.value,
+      });
       if (error) throw error;
-      toast('Conta adicionada.');
+      toast(pTotal.value ? `Parcelamento criado: ${pTotal.value}x de ${brl(amount)}.` : 'Conta adicionada.');
     }
-    $('nb-name').value = ''; $('nb-amt').value = '';
+    $('nb-name').value = ''; $('nb-amt').value = ''; $('nb-total').value = ''; $('nb-due').value = '';
+    $('nb-hint').hidden = true;
     await loadAll();
   } catch (err) {
     toast(err.code === '23505' ? 'Essa conta já existe. Atualize a página e edite o valor.' : friendly(err), { err: 1 });
   } finally {
     busy.bill = false; $('nb-btn').disabled = false;
   }
+}
+
+function redoBill(id) {
+  const b = bills.find((x) => x.id === id);
+  if (!b) return;
+  $('nb-name').value = b.name;
+  $('nb-amt').value = Number(b.amount).toFixed(2).replace('.', ',');
+  $('nb-total').value = ''; $('nb-due').value = b.due_day || '';
+  $('nb-hint').hidden = true;
+  $('nb-total').focus();
+  $('nb-name').closest('.card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  toast('Preencha as parcelas (se houver) e clique em Adicionar para reativar.');
+}
+
+/* ---------- detalhes de conta fixa: parcelas, início, vencimento ---------- */
+let bdEditId = null;
+function openBillDetails(id) {
+  const b = bills.find((x) => x.id === id);
+  if (!b) return;
+  bdEditId = id;
+  $('bd-name').textContent = b.name;
+  $('bd-amt').value = Number(b.amount).toFixed(2).replace('.', ',');
+  $('bd-total').value = b.installments_total || '';
+  $('bd-start').value = b.start_month.slice(0, 7);
+  $('bd-due').value = b.due_day || '';
+  updateBillHint();
+  $('bdlg').showModal();
+}
+function updateBillHint() {
+  const p = parseInstallments($('bd-total').value);
+  const start = $('bd-start').value;
+  $('bd-hint').textContent = (p.ok && p.value && start)
+    ? `Última parcela em ${monthShort(indexToYm(ymToIndex(start) + p.value - 1))}.`
+    : 'Sem número de parcelas: a conta se repete todo mês, até você excluir ou pausar.';
+}
+async function saveBillDetails(e) {
+  e.preventDefault();
+  if (!bdEditId) return;
+  const amount = num($('bd-amt').value);
+  if (!validAmt(amount)) return toast('Informe um valor válido.', { err: 1 });
+  const pTotal = parseInstallments($('bd-total').value);
+  if (!pTotal.ok) return toast('Número de parcelas inválido.', { err: 1 });
+  const start = $('bd-start').value;
+  if (!start) return toast('Informe o mês de início.', { err: 1 });
+  const pDue = parseDueDay($('bd-due').value);
+  if (!pDue.ok) return toast('Dia de vencimento inválido (use de 1 a 31).', { err: 1 });
+
+  const { error } = await sb.from('fixed_bills').update({
+    amount, installments_total: pTotal.value, start_month: start + '-01', due_day: pDue.value,
+  }).eq('id', bdEditId);
+  if (error) return toast(friendly(error), { err: 1 });
+  $('bdlg').close(); toast('Detalhes salvos.'); loadAll();
 }
 
 /* ---------- salário e exportação ---------- */
