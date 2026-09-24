@@ -85,7 +85,30 @@ function monthBounds(arg) {
     }
   }
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  return { start: `${y}-${pad(m)}-01`, end: `${y}-${pad(m)}-${pad(last)}`, label: `${pad(m)}/${y}` };
+  return { start: `${y}-${pad(m)}-01`, end: `${y}-${pad(m)}-${pad(last)}`, label: `${pad(m)}/${y}`, ym: `${y}-${pad(m)}` };
+}
+
+/* ---------- parcelas e vencimento das contas fixas ----------
+   Mesma lógica do site: cada conta tem um mês de início (start_month) e,
+   opcionalmente, um total de parcelas. Uma dívida quitada some sozinha das
+   contas ativas dos meses seguintes — é só matemática de datas, calculada
+   na hora, sem precisar de nenhuma tarefa agendada. */
+const currentYm = () => { const { y, m } = nowParts(); return `${y}-${pad(m)}`; };
+const ymToIndex = (s) => { const [y, m] = s.split('-').map(Number); return y * 12 + (m - 1); };
+const indexToYmLabel = (idx) => `${pad((idx % 12) + 1)}/${Math.floor(idx / 12)}`;
+function billStatus(b, ymStr) {
+  const total = b.installments_total;
+  const diff = ymToIndex(ymStr) - ymToIndex(String(b.start_month).slice(0, 7));
+  const started = diff >= 0;
+  const finished = total != null && diff >= total;
+  const num = started && !finished ? diff + 1 : null;
+  return { started, finished, num, diff };
+}
+function billLine(b, st) {
+  const bits = [];
+  if (b.installments_total) bits.push(st.num === b.installments_total ? 'última parcela' : `parcela ${st.num}/${b.installments_total}`);
+  if (b.due_day) bits.push(`vence dia ${b.due_day}`);
+  return `• ${esc(b.name)}: <b>${brl(b.amount)}</b>${bits.length ? ` <i>(${bits.join(', ')})</i>` : ''}`;
 }
 
 const fmtDay = (iso) => {
@@ -508,6 +531,8 @@ const HELP = `👋 <b>Comandos</b>
 
 <b>Configurar</b>
 /conta Netflix 39,90 — cria ou atualiza uma conta fixa
+/conta Celular 418 12x — parcelada em 12x (some sozinha ao quitar)
+/conta Aluguel 900 dia5 — com dia de vencimento
 /salario 2800 — altera o salário
 
 /cancelar — cancela uma digitação em andamento
@@ -603,11 +628,10 @@ async function sendSummary(chatId, monthArg) {
     await bot.sendMessage(chatId, 'Não entendi o mês. Exemplos: /resumo, /resumo anterior, /resumo 08/2026');
     return;
   }
-  const { start, end, label } = bounds;
+  const { start, end, label, ym } = bounds;
   const [s, b, t] = await Promise.all([
     sb.from('settings').select('salary').eq('id', 1).single(),
-    sb.from('fixed_bills').select('name, amount').eq('active', true)
-      .order('created_at', { ascending: true }).order('name', { ascending: true }),
+    sb.from('fixed_bills').select('*'),
     sb.from('transactions').select('type, category, description, amount, occurred_on, created_at')
       .gte('occurred_on', start).lte('occurred_on', end)
       .order('occurred_on', { ascending: true }).order('created_at', { ascending: true }),
@@ -616,7 +640,11 @@ async function sendSummary(chatId, monthArg) {
   if (err) throw err;
 
   const salary = s.data ? Number(s.data.salary) : 0;
-  const bills = b.data || [];
+  const billRows = (b.data || [])
+    .map((x) => ({ b: x, st: billStatus(x, ym) }))
+    .filter((r) => r.b.active && r.st.started && !r.st.finished)
+    .sort((x, y) => (x.b.due_day ?? 99) - (y.b.due_day ?? 99) || x.b.name.localeCompare(y.b.name, 'pt-BR'));
+  const bills = billRows.map((r) => r.b);
   const txs = t.data || [];
   const by = (type) => txs.filter((x) => x.type === type);
   const entradas = by('entrada'), acrescimos = by('acrescimo'), compras = by('compra'), retiradas = by('retirada');
@@ -627,8 +655,8 @@ async function sendSummary(chatId, monthArg) {
   const saldo = salary + totEntradas + totAcrescimos - totCompras - totRetiradas - totalBills;
 
   const billsLines = [`📌 <b>CONTAS FIXAS</b>`];
-  if (!bills.length) billsLines.push('— nenhuma conta fixa —');
-  else bills.forEach((x) => billsLines.push(`• ${esc(x.name)}: <b>${brl(x.amount)}</b>`));
+  if (!billRows.length) billsLines.push('— nenhuma conta fixa —');
+  else billRows.forEach((r) => billsLines.push(billLine(r.b, r.st)));
   billsLines.push(`Total: <b>${brl(totalBills)}</b>`);
 
   const closing = [
@@ -680,44 +708,85 @@ bot.onText(cmd('extrato'), guarded(async (msg) => {
 /* ---------- /contas e /conta ---------- */
 
 bot.onText(cmd('contas'), guarded(async (msg) => {
-  const { data: bills, error } = await sb.from('fixed_bills').select('*').eq('active', true)
+  const { data: all, error } = await sb.from('fixed_bills').select('*')
     .order('created_at', { ascending: true }).order('name', { ascending: true });
   if (error) throw error;
-  if (!bills || !bills.length) {
-    await bot.sendMessage(msg.chat.id, 'Nenhuma conta fixa cadastrada. Use /conta Nome 50,00 para criar.');
+  const ym = currentYm();
+  const rows = (all || []).map((b) => ({ b, st: billStatus(b, ym) }));
+  const active = rows.filter((r) => r.b.active && r.st.started && !r.st.finished);
+  const upcoming = rows.filter((r) => r.b.active && !r.st.started);
+  if (!active.length && !upcoming.length) {
+    await bot.sendMessage(msg.chat.id,
+      'Nenhuma conta fixa ativa.\nUse /conta Nome 50,00 para criar (ou "12x" para parcelar, "dia10" para vencimento).');
     return;
   }
-  const lines = bills.map((x) => `• ${esc(x.name)}: <b>${brl(x.amount)}</b>`);
-  await bot.sendMessage(msg.chat.id,
-    `📌 <b>CONTAS FIXAS</b>\n${lines.join('\n')}\n\nTotal: <b>${brl(sumOf(bills))}</b>`, html);
+  active.sort((a, z) => (a.b.due_day ?? 99) - (z.b.due_day ?? 99) || a.b.name.localeCompare(z.b.name, 'pt-BR'));
+  let text = `📌 <b>CONTAS FIXAS</b>\n${active.map((r) => billLine(r.b, r.st)).join('\n') || '— nenhuma conta ativa —'}\n\nTotal: <b>${brl(sumOf(active.map((r) => r.b)))}</b>`;
+  if (upcoming.length) {
+    text += `\n\n🔜 <i>Começam em breve:</i>\n` +
+      upcoming.map((r) => `• ${esc(r.b.name)}: ${brl(r.b.amount)} — a partir de ${indexToYmLabel(ymToIndex(String(r.b.start_month).slice(0, 7)))}`).join('\n');
+  }
+  await bot.sendMessage(msg.chat.id, text, html);
 }));
 
 // Cria a conta OU atualiza o valor se o nome já existir (nunca duplica).
+// Aceita parcelas ("12x") e dia de vencimento ("dia10") depois do valor, em qualquer ordem.
 bot.onText(cmd('conta'), guarded(async (msg, match) => {
   const chatId = msg.chat.id;
-  const m = (match[1] || '').trim().match(/^(.+?)\s+(?:R\$\s*)?([\d.,]+)$/i);
+  const m = (match[1] || '').trim().match(/^(.+?)\s+(?:R\$\s*)?([\d.,]+)(?:\s+([\s\S]*))?$/i);
   const amount = m ? parseAmount(m[2]) : NaN;
   if (!m || !validAmount(amount)) {
-    await bot.sendMessage(chatId, 'Uso: /conta Nome 39,90\nExemplo: /conta Plano de crédito 30\nSe a conta já existir, só atualizo o valor.');
+    await bot.sendMessage(chatId,
+      'Uso: /conta Nome valor [Nx] [diaD]\n\n' +
+      'Exemplos:\n• /conta Plano de crédito 30\n• /conta Celular 418 12x\n• /conta Netflix 39,90 dia10\n• /conta TV 200 10x dia5\n\n' +
+      'Se a conta já existir, você atualiza o valor (ou reinicia um parcelamento, se a anterior já tiver sido quitada).', html);
     return;
   }
   const name = m[1].trim().replace(/\s+/g, ' ').slice(0, 60);
+  const extra = m[3] || '';
+  const mi = extra.match(/(\d{1,3})\s*x\b/i);
+  const md = extra.match(/dia\s*(\d{1,2})\b/i);
+  const installments_total = mi ? parseInt(mi[1], 10) : null;
+  const due_day = md ? parseInt(md[1], 10) : null;
+  if (installments_total != null && (installments_total < 1 || installments_total > 600)) {
+    await bot.sendMessage(chatId, 'Número de parcelas inválido.');
+    return;
+  }
+  if (due_day != null && (due_day < 1 || due_day > 31)) {
+    await bot.sendMessage(chatId, 'Dia de vencimento inválido (use de 1 a 31).');
+    return;
+  }
 
-  const { data: all, error } = await sb.from('fixed_bills').select('id, name, amount, active');
+  const ym = currentYm();
+  const { data: all, error } = await sb.from('fixed_bills').select('*');
   if (error) throw error;
   const found = (all || []).find((b) => normKey(b.name) === normKey(name));
 
   if (found) {
-    const { error: e2 } = await sb.from('fixed_bills').update({ amount, active: true }).eq('id', found.id);
+    const st = billStatus(found, ym);
+    if (st.finished) {
+      const { error: e2 } = await sb.from('fixed_bills').update({
+        amount, active: true, start_month: ym + '-01', installments_total, due_day,
+      }).eq('id', found.id);
+      if (e2) throw e2;
+      await bot.sendMessage(chatId,
+        `🔁 <b>${esc(found.name)}</b> estava quitada — novo parcelamento iniciado: <b>${brl(amount)}</b>` +
+        (installments_total ? ` em ${installments_total}x` : '') + '.', html);
+      return;
+    }
+    const patch = { amount, active: true };
+    if (mi) patch.installments_total = installments_total;
+    if (md) patch.due_day = due_day;
+    const { error: e2 } = await sb.from('fixed_bills').update(patch).eq('id', found.id);
     if (e2) throw e2;
-    const same = Number(found.amount) === amount && found.active;
+    const same = Number(found.amount) === amount && found.active && !mi && !md;
     await bot.sendMessage(chatId, same
       ? `ℹ️ <b>${esc(found.name)}</b> já existe com esse valor (${brl(amount)}). Nada mudou.`
       : `🔄 <b>${esc(found.name)}</b> atualizada: ${brl(found.amount)} → <b>${brl(amount)}</b>`, html);
     return;
   }
 
-  const { error: e3 } = await sb.from('fixed_bills').insert({ name, amount });
+  const { error: e3 } = await sb.from('fixed_bills').insert({ name, amount, start_month: ym + '-01', installments_total, due_day });
   if (e3) {
     if (e3.code === '23505') {
       await bot.sendMessage(chatId, 'ℹ️ Essa conta já existe. Mande o comando de novo para atualizar o valor.');
@@ -725,7 +794,8 @@ bot.onText(cmd('conta'), guarded(async (msg, match) => {
     }
     throw e3;
   }
-  await bot.sendMessage(chatId, `📌 Conta fixa <b>${esc(name)}</b> criada: <b>${brl(amount)}</b>/mês.`, html);
+  const extra2 = [installments_total ? `${installments_total}x` : null, due_day ? `vence dia ${due_day}` : null].filter(Boolean).join(', ');
+  await bot.sendMessage(chatId, `📌 Conta fixa <b>${esc(name)}</b> criada: <b>${brl(amount)}</b>/mês${extra2 ? ' · ' + extra2 : ''}.`, html);
 }));
 
 /* ---------- /salario ---------- */
