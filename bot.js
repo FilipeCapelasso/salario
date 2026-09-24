@@ -559,6 +559,17 @@ bot.setMyCommands([
   { command: 'ajuda', description: 'Lista de comandos' },
 ]).catch((e) => console.error('setMyCommands:', e.message));
 
+// Servidor HTTP mínimo: o Render (web service gratuito) exige uma porta aberta
+// e só mantém o serviço acordado se receber requisições (use um pinger, veja o passo a passo).
+const http = require('http');
+const PORT = process.env.PORT || 3000;
+http
+  .createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Bot online ✅');
+  })
+  .listen(PORT, () => console.log(`Servidor HTTP na porta ${PORT}`));
+
 bot.on('polling_error', (e) => console.error('polling_error:', e.code || '', e.message));
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
 
