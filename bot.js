@@ -1,5 +1,6 @@
 require('dotenv').config();
 const crypto = require('crypto');
+const http = require('http');
 const TelegramBot = require('node-telegram-bot-api');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -9,13 +10,15 @@ if (!process.env.BOT_TOKEN || !process.env.SUPABASE_URL || !process.env.SUPABASE
 }
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
-const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
 /* ============================================================
    CONFIGURAÇÃO — edite aqui à vontade
    ============================================================ */
 
-// Fuso horário usado para "hoje" e "mês atual" (o servidor do Railway roda em UTC).
+// Fuso horário usado para "hoje" e "mês atual" (o servidor roda em UTC).
 const TZ = process.env.TIMEZONE || 'America/Rio_Branco';
 
 // Segurança: coloque seu chat id em ALLOWED_CHAT_ID (mais de um? separe por vírgula).
@@ -31,8 +34,9 @@ const TYPES = {
   retirada:  { label: 'Retirada',  emoji: '💵', askCategory: false, defaults: [] },
 };
 
-const MAX_BUTTONS = 12;            // máximo de categorias nos botões
-const PENDING_TTL = 10 * 60 * 1000; // botões expiram em 10 min
+const MAX_BUTTONS = 12;              // máximo de categorias nos botões
+const PENDING_TTL = 10 * 60 * 1000;  // botões expiram em 10 min
+const DUP_WINDOW_MS = 3 * 60 * 1000; // mesmo valor+categoria dentro de 3 min = "parece duplicada"
 
 // Emojis por categoria (chave sem acento e minúscula). O resto usa 🏷️
 const CATEGORY_EMOJI = {
@@ -60,8 +64,26 @@ const todayISO = () => {
   return `${y}-${pad(m)}-${pad(d)}`;
 };
 
-function monthBounds() {
-  const { y, m } = nowParts();
+// Sem argumento = mês atual. Aceita "anterior", "-2" (2 meses atrás) ou "MM/AAAA".
+// Retorna null se não entender.
+function monthBounds(arg) {
+  let { y, m } = nowParts();
+  const s = String(arg || '').trim().toLowerCase();
+  if (s) {
+    let back = null;
+    if (s === 'anterior' || s === 'passado') back = 1;
+    else if (/^-\d{1,2}$/.test(s)) back = Math.abs(Number(s));
+    if (back !== null) {
+      const d = new Date(Date.UTC(y, m - 1 - back, 1));
+      y = d.getUTCFullYear();
+      m = d.getUTCMonth() + 1;
+    } else {
+      const mm = s.match(/^(\d{1,2})[/-](\d{4})$/);
+      if (!mm || Number(mm[1]) < 1 || Number(mm[1]) > 12) return null;
+      m = Number(mm[1]);
+      y = Number(mm[2]);
+    }
+  }
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
   return { start: `${y}-${pad(m)}-01`, end: `${y}-${pad(m)}-${pad(last)}`, label: `${pad(m)}/${y}` };
 }
@@ -76,6 +98,8 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 const normKey = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 const cap = (s) => (s ? s.charAt(0).toLocaleUpperCase('pt-BR') + s.slice(1) : s);
 const emojiFor = (cat) => CATEGORY_EMOJI[normKey(cat)] || '🏷️';
+const newToken = () => crypto.randomBytes(4).toString('hex');
+const sumOf = (list) => list.reduce((s, x) => s + Number(x.amount), 0);
 
 // Aceita "45", "45,90", "45.90", "1.234,56", "R$45"
 function parseAmount(str) {
@@ -109,7 +133,7 @@ function guarded(fn) {
   };
 }
 
-const cmd = (name) => new RegExp(`^\\/${name}(?:@\\w+)?(?:\\s+([\\s\\S]+))?\\s*$`);
+const cmd = (name) => new RegExp(`^\\/(?:${name})(?:@\\w+)?(?:\\s+([\\s\\S]+))?\\s*$`);
 const html = { parse_mode: 'HTML' };
 
 // Envia vários blocos respeitando o limite de 4096 caracteres do Telegram
@@ -136,19 +160,52 @@ async function sendBlocks(chatId, blocks) {
 }
 
 /* ============================================================
-   BANCO
-   ============================================================ */
+   BANCO + ANTI-DUPLICIDADE
+   ============================================================
 
-async function saveTransaction({ type, amount, category, description }) {
-  const { error } = await sb.from('transactions').insert({
-    type,
-    amount,
-    category: category || null,
-    description: description || null,
+   Três camadas protegem contra lançamentos repetidos:
+   1. client_id único: cada mensagem/toque tem uma chave (o banco recusa repetição).
+      Cobre reentrega do Telegram, reinício do bot e toques duplos.
+   2. Checagem de "parece duplicada": mesmo tipo + valor + categoria nos últimos
+      3 minutos → o bot pergunta antes de gravar.
+   3. Botão "Desfazer" em toda confirmação e o comando /desfazer.
+*/
+
+async function findByClientId(clientId) {
+  const { data, error } = await sb.from('transactions').select('id').eq('client_id', clientId).limit(1);
+  if (error) throw error;
+  return data && data[0] ? data[0] : null;
+}
+
+async function findRecentSimilar({ type, amount, category }) {
+  const since = new Date(Date.now() - DUP_WINDOW_MS).toISOString();
+  let q = sb.from('transactions').select('id').eq('type', type).eq('amount', amount).gte('created_at', since).limit(1);
+  q = category ? q.eq('category', category) : q.is('category', null);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data && data[0] ? data[0] : null;
+}
+
+// Retorna { status: 'saved', id } | { status: 'duplicate' } | { status: 'similar' }
+async function commit(entry, { clientId, force = false }) {
+  if (clientId && (await findByClientId(clientId))) return { status: 'duplicate' };
+  if (!force && (await findRecentSimilar(entry))) return { status: 'similar' };
+
+  const { data, error } = await sb.from('transactions').insert({
+    type: entry.type,
+    amount: entry.amount,
+    category: entry.category || null,
+    description: entry.description || null,
     occurred_on: todayISO(),
     source: 'telegram',
-  });
-  if (error) throw error;
+    client_id: clientId || null,
+  }).select('id').single();
+
+  if (error) {
+    if (error.code === '23505') return { status: 'duplicate' }; // outra cópia chegou junto
+    throw error;
+  }
+  return { status: 'saved', id: data && data.id };
 }
 
 // Categorias para os botões: as padrão + as que você já usou nesse tipo (mais usadas primeiro)
@@ -189,6 +246,7 @@ async function categoryOptions(type) {
 
 function canonicalCategory(name, all) {
   const clean = name.trim().replace(/\s+/g, ' ').slice(0, 40);
+  if (!clean) return null;
   const found = all.find((c) => normKey(c) === normKey(clean));
   return found || cap(clean);
 }
@@ -197,7 +255,7 @@ function canonicalCategory(name, all) {
    FLUXO DE REGISTRO COM BOTÕES
    ============================================================ */
 
-const pending = new Map();        // token -> { chatId, type, amount, description, buttons, all, createdAt }
+const pending = new Map();        // token -> { kind: 'cat' | 'dup', chatId, ..., createdAt }
 const awaitingCustom = new Map(); // chatId -> token
 
 setInterval(() => {
@@ -205,12 +263,14 @@ setInterval(() => {
   for (const [token, p] of pending) if (now - p.createdAt > PENDING_TTL) pending.delete(token);
 }, 60 * 1000).unref();
 
-function confirmText(type, amount, category, description) {
+function confirmText({ type, amount, category, description }) {
   let t = `✅ ${TYPES[type].label} de <b>${brl(amount)}</b> registrada.`;
   if (category) t += `\n🏷️ ${esc(cap(category))}`;
   if (description) t += `\n📝 ${esc(description)}`;
   return t;
 }
+
+const undoMarkup = (id) => ({ reply_markup: { inline_keyboard: [[{ text: '↩️ Desfazer', callback_data: `undo:${id}` }]] } });
 
 function categoryKeyboard(token, buttons) {
   const rows = [];
@@ -228,6 +288,34 @@ function categoryKeyboard(token, buttons) {
   return { inline_keyboard: rows };
 }
 
+// Grava com proteção e responde. `reply(texto, extra)` envia nova mensagem ou edita a existente.
+async function finalize(entry, clientId, reply, { force = false } = {}) {
+  const r = await commit(entry, { clientId, force });
+
+  if (r.status === 'saved') {
+    return reply(confirmText(entry), r.id ? undoMarkup(r.id) : {});
+  }
+  if (r.status === 'duplicate') {
+    return reply('ℹ️ Esse lançamento já estava registrado — não dupliquei.');
+  }
+  // similar: pergunta antes de gravar
+  const token = newToken();
+  pending.set(token, { kind: 'dup', entry, createdAt: Date.now() });
+  const desc = `${TYPES[entry.type].emoji} ${TYPES[entry.type].label} de <b>${brl(entry.amount)}</b>` +
+    (entry.category ? ` · ${esc(cap(entry.category))}` : '');
+  return reply(
+    `⚠️ <b>Parece duplicada.</b>\nJá registrei ${desc} nos últimos 3 minutos.\n\nRegistrar mesmo assim?`,
+    {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '✅ Sim, registrar', callback_data: `dup:${token}:yes` },
+          { text: '❌ Não', callback_data: `dup:${token}:no` },
+        ]],
+      },
+    }
+  );
+}
+
 async function handleRegister(msg, type, args) {
   const chatId = msg.chat.id;
   const cfg = TYPES[type];
@@ -240,12 +328,12 @@ async function handleRegister(msg, type, args) {
     return;
   }
   const rest = tokens.slice(1);
+  const clientId = `msg:${chatId}:${msg.message_id}`; // mesma mensagem nunca grava duas vezes
+  const reply = (text, extra = {}) => bot.sendMessage(chatId, text, { ...html, ...extra });
 
   // Retirada: sem categoria, grava direto
   if (!cfg.askCategory) {
-    const description = rest.join(' ') || null;
-    await saveTransaction({ type, amount, category: null, description });
-    await bot.sendMessage(chatId, confirmText(type, amount, null, description), html);
+    await finalize({ type, amount, category: null, description: rest.join(' ') || null }, clientId, reply);
     return;
   }
 
@@ -255,16 +343,14 @@ async function handleRegister(msg, type, args) {
   if (rest.length) {
     const match = all.find((c) => normKey(c) === normKey(rest[0]));
     if (match) {
-      const description = rest.slice(1).join(' ') || null;
-      await saveTransaction({ type, amount, category: match, description });
-      await bot.sendMessage(chatId, confirmText(type, amount, match, description), html);
+      await finalize({ type, amount, category: match, description: rest.slice(1).join(' ') || null }, clientId, reply);
       return;
     }
   }
 
   const description = rest.join(' ') || null;
-  const token = crypto.randomBytes(4).toString('hex');
-  pending.set(token, { chatId, type, amount, description, buttons, all, createdAt: Date.now() });
+  const token = newToken();
+  pending.set(token, { kind: 'cat', chatId, type, amount, description, buttons, all, createdAt: Date.now() });
 
   let text = `${cfg.emoji} ${cfg.label} de <b>${brl(amount)}</b>`;
   if (description) text += `\n📝 ${esc(description)}`;
@@ -274,72 +360,91 @@ async function handleRegister(msg, type, args) {
 
 bot.on('callback_query', async (q) => {
   const chatId = q.message && q.message.chat.id;
+  const answer = (opts) => bot.answerCallbackQuery(q.id, opts).catch(() => {});
   try {
-    if (!q.data || !q.data.startsWith('cat:') || !chatId) {
-      await bot.answerCallbackQuery(q.id);
-      return;
-    }
-    if (!authorized(chatId)) {
-      await bot.answerCallbackQuery(q.id, { text: 'Acesso não autorizado.', show_alert: true });
-      return;
-    }
+    const [kind, a, b] = String(q.data || '').split(':');
+    if (!chatId || !['cat', 'dup', 'undo'].includes(kind)) return answer();
+    if (!authorized(chatId)) return answer({ text: 'Acesso não autorizado.', show_alert: true });
 
-    const [, token, action] = q.data.split(':');
     const ref = { chat_id: chatId, message_id: q.message.message_id, parse_mode: 'HTML' };
-    const p = pending.get(token);
+    const edit = (text, extra = {}) => bot.editMessageText(text, { ...ref, ...extra });
 
-    if (!p || p.chatId !== chatId) {
-      await bot.answerCallbackQuery(q.id, { text: 'Essa seleção expirou. Envie o comando de novo.', show_alert: true });
+    /* ---- desfazer ---- */
+    if (kind === 'undo') {
+      if (a === 'keep') {
+        await answer();
+        await edit('👍 Mantida.');
+        return;
+      }
+      const { data: rows, error } = await sb.from('transactions').delete().eq('id', a).select('type, amount, category');
+      if (error) throw error;
+      if (!rows || !rows.length) {
+        await answer({ text: 'Já tinha sido removido.' });
+        await edit('ℹ️ Esse lançamento já tinha sido removido.');
+        return;
+      }
+      const t = rows[0];
+      await answer({ text: 'Desfeito.' });
+      await edit(`🗑️ Desfeito: ${TYPES[t.type].label} de <b>${brl(t.amount)}</b>${t.category ? ' · ' + esc(cap(t.category)) : ''}`);
+      return;
+    }
+
+    const p = pending.get(a);
+    const valid = p && p.kind === kind && (kind === 'dup' || p.chatId === chatId);
+    if (!valid) {
+      await answer({ text: 'Essa seleção expirou. Envie o comando de novo.', show_alert: true });
       await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: q.message.message_id }).catch(() => {});
       return;
     }
 
-    if (action === 'cancel') {
-      pending.delete(token);
-      awaitingCustom.delete(chatId);
-      await bot.answerCallbackQuery(q.id);
-      await bot.editMessageText('❌ Cancelado.', ref);
+    /* ---- "parece duplicada": confirmar ou não ---- */
+    if (kind === 'dup') {
+      pending.delete(a); // um toque só
+      if (b !== 'yes') {
+        await answer();
+        await edit('❌ Não registrei.');
+        return;
+      }
+      await answer({ text: 'Registrando…' });
+      await finalize(p.entry, `cb:${a}`, edit, { force: true });
       return;
     }
 
-    if (action === 'new') {
-      awaitingCustom.set(chatId, token);
-      await bot.answerCallbackQuery(q.id);
-      await bot.editMessageText(
-        `✏️ ${TYPES[p.type].label} de <b>${brl(p.amount)}</b>\n\nDigite o nome da nova categoria (ou /cancelar):`,
-        ref
-      );
+    /* ---- escolha de categoria ---- */
+    if (b === 'cancel') {
+      pending.delete(a);
+      awaitingCustom.delete(chatId);
+      await answer();
+      await edit('❌ Cancelado.');
+      return;
+    }
+
+    if (b === 'new') {
+      awaitingCustom.set(chatId, a);
+      await answer();
+      await edit(`✏️ ${TYPES[p.type].label} de <b>${brl(p.amount)}</b>\n\nDigite o nome da nova categoria (ou /cancelar):`);
       return;
     }
 
     let category = null;
-    if (action !== 'none') {
-      category = p.buttons[Number(action)];
-      if (!category) {
-        await bot.answerCallbackQuery(q.id);
-        return;
-      }
+    if (b !== 'none') {
+      category = p.buttons[Number(b)];
+      if (!category) return answer();
     }
 
-    pending.delete(token); // evita registrar duas vezes se tocar 2x
+    pending.delete(a); // evita registrar duas vezes se tocar 2x
     awaitingCustom.delete(chatId);
-    try {
-      await saveTransaction({ type: p.type, amount: p.amount, category, description: p.description });
-    } catch (e) {
-      console.error(e);
-      await bot.answerCallbackQuery(q.id, { text: 'Erro ao salvar. Envie o comando de novo.', show_alert: true });
-      await bot.editMessageText('⚠️ Erro ao salvar: ' + esc(e.message || e), ref);
-      return;
-    }
-    await bot.answerCallbackQuery(q.id, { text: 'Registrado!' });
-    await bot.editMessageText(confirmText(p.type, p.amount, category, p.description), ref);
+    await answer({ text: 'Registrando…' });
+    await finalize({ type: p.type, amount: p.amount, category, description: p.description }, `cb:${a}`, edit);
   } catch (e) {
     console.error(e);
-    bot.answerCallbackQuery(q.id).catch(() => {});
+    answer({ text: 'Erro. Tente de novo.', show_alert: true });
+    if (chatId) bot.sendMessage(chatId, '⚠️ Não consegui registrar: ' + (e.message || e)).catch(() => {});
   }
 });
 
-// Texto digitado depois de "✏️ Outra (digitar)" vira a nova categoria
+// Texto digitado depois de "✏️ Outra (digitar)" vira a nova categoria.
+// Mensagem que começa com número (ex.: "45,90 mercado") vira uma compra.
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   if (!msg.text || !authorized(chatId)) return;
@@ -349,25 +454,29 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  const token = awaitingCustom.get(chatId);
-  if (!token) return;
-  awaitingCustom.delete(chatId);
-
-  const p = pending.get(token);
-  if (!p) {
-    bot.sendMessage(chatId, 'Essa seleção expirou. Envie o comando de novo.');
-    return;
-  }
-
   try {
-    const category = canonicalCategory(msg.text, p.all);
-    if (!category) {
-      bot.sendMessage(chatId, 'Categoria vazia. Envie o comando de novo.');
+    const token = awaitingCustom.get(chatId);
+    if (token) {
+      awaitingCustom.delete(chatId);
+      const p = pending.get(token);
+      if (!p || p.kind !== 'cat') {
+        await bot.sendMessage(chatId, 'Essa seleção expirou. Envie o comando de novo.');
+        return;
+      }
+      const category = canonicalCategory(msg.text, p.all);
+      if (!category) {
+        await bot.sendMessage(chatId, 'Categoria vazia. Envie o comando de novo.');
+        return;
+      }
+      pending.delete(token);
+      const reply = (text, extra = {}) => bot.sendMessage(chatId, text, { ...html, ...extra });
+      await finalize({ type: p.type, amount: p.amount, category, description: p.description }, `cb:${token}`, reply);
       return;
     }
-    pending.delete(token);
-    await saveTransaction({ type: p.type, amount: p.amount, category, description: p.description });
-    await bot.sendMessage(chatId, confirmText(p.type, p.amount, category, p.description), html);
+
+    if (/^\s*(?:r\$\s*)?\d/i.test(msg.text)) {
+      await handleRegister(msg, 'compra', msg.text);
+    }
   } catch (e) {
     console.error(e);
     bot.sendMessage(chatId, '⚠️ Erro ao salvar: ' + (e.message || e));
@@ -386,14 +495,21 @@ const HELP = `👋 <b>Comandos</b>
 /acrescimo 150 — idem
 /retirada 100 caixa eletrônico
 
-💡 Já sabe a categoria? Mande junto:
-/compra 45,90 mercado feira da semana
-Se escrever outra coisa depois do valor, vira descrição e eu pergunto a categoria.
+💡 <b>Atalhos</b>
+• Já sabe a categoria? /compra 45,90 mercado feira
+• Mande só <code>45,90 mercado</code> e vira uma compra
+• Errou? Toque em ↩️ Desfazer na confirmação, ou use /desfazer
 
 <b>Consultar</b>
-/resumo — resumo completo do mês
+/resumo — resumo do mês (ou /resumo anterior, /resumo 08/2026)
 /extrato — últimas 10 movimentações
 /contas — contas fixas
+/salario — ver ou alterar o salário
+
+<b>Configurar</b>
+/conta Netflix 39,90 — cria ou atualiza uma conta fixa
+/salario 2800 — altera o salário
+
 /cancelar — cancela uma digitação em andamento
 /id — mostra o seu chat id`;
 
@@ -409,11 +525,40 @@ bot.onText(/^\/cancelar(?:@\w+)?\s*$/, guarded(async (msg) => {
 }));
 
 for (const type of Object.keys(TYPES)) {
-  bot.onText(cmd(type), guarded((msg, match) => handleRegister(msg, type, match[1])));
-  // sem valor: mostra como usar
-  bot.onText(new RegExp(`^\\/${type}(?:@\\w+)?\\s*$`), guarded((msg) =>
-    bot.sendMessage(msg.chat.id, `Informe o valor. Exemplo: /${type} 45,90`)));
+  bot.onText(cmd(type), guarded((msg, match) => {
+    if (!match[1] || !match[1].trim()) {
+      return bot.sendMessage(msg.chat.id, `Informe o valor. Exemplo: /${type} 45,90`);
+    }
+    return handleRegister(msg, type, match[1]);
+  }));
 }
+
+/* ---------- /desfazer ---------- */
+
+bot.onText(cmd('desfazer'), guarded(async (msg) => {
+  const { data, error } = await sb.from('transactions').select('*').order('created_at', { ascending: false }).limit(1);
+  if (error) throw error;
+  const t = data && data[0];
+  if (!t) {
+    await bot.sendMessage(msg.chat.id, 'Não há nenhuma movimentação para desfazer.');
+    return;
+  }
+  const cfg = TYPES[t.type];
+  const extra = [t.category ? cap(t.category) : null, t.description].filter(Boolean).map(esc).join(' — ');
+  await bot.sendMessage(
+    msg.chat.id,
+    `Excluir a última movimentação?\n\n${fmtDay(t.occurred_on)} · ${cfg.emoji} ${cfg.label} · <b>${brl(t.amount)}</b>${extra ? '\n' + extra : ''}`,
+    {
+      ...html,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '🗑️ Excluir', callback_data: `undo:${t.id}` },
+          { text: 'Manter', callback_data: 'undo:keep' },
+        ]],
+      },
+    }
+  );
+}));
 
 /* ---------- /resumo (e /saldo) ---------- */
 
@@ -436,8 +581,6 @@ function categoryTotals(list) {
   return [...map.values()].sort((a, b) => b.total - a.total);
 }
 
-const sumOf = (list) => list.reduce((s, x) => s + Number(x.amount), 0);
-
 function txSection(title, emoji, list, withCategories) {
   const lines = [`${emoji} <b>${title}</b>`];
   if (!list.length) {
@@ -454,8 +597,13 @@ function txSection(title, emoji, list, withCategories) {
   return lines.join('\n');
 }
 
-async function sendSummary(chatId) {
-  const { start, end, label } = monthBounds();
+async function sendSummary(chatId, monthArg) {
+  const bounds = monthBounds(monthArg);
+  if (!bounds) {
+    await bot.sendMessage(chatId, 'Não entendi o mês. Exemplos: /resumo, /resumo anterior, /resumo 08/2026');
+    return;
+  }
+  const { start, end, label } = bounds;
   const [s, b, t] = await Promise.all([
     sb.from('settings').select('salary').eq('id', 1).single(),
     sb.from('fixed_bills').select('name, amount').eq('active', true)
@@ -508,11 +656,11 @@ async function sendSummary(chatId) {
   ]);
 }
 
-bot.onText(/^\/(resumo|saldo)(?:@\w+)?\s*$/, guarded((msg) => sendSummary(msg.chat.id)));
+bot.onText(cmd('resumo|saldo'), guarded((msg, match) => sendSummary(msg.chat.id, match[1])));
 
 /* ---------- /extrato ---------- */
 
-bot.onText(/^\/extrato(?:@\w+)?\s*$/, guarded(async (msg) => {
+bot.onText(cmd('extrato'), guarded(async (msg) => {
   const { data: txs, error } = await sb.from('transactions').select('*')
     .order('created_at', { ascending: false }).limit(10);
   if (error) throw error;
@@ -529,19 +677,75 @@ bot.onText(/^\/extrato(?:@\w+)?\s*$/, guarded(async (msg) => {
   await sendBlocks(msg.chat.id, ['🧾 <b>ÚLTIMAS MOVIMENTAÇÕES</b>\n' + lines.join('\n')]);
 }));
 
-/* ---------- /contas ---------- */
+/* ---------- /contas e /conta ---------- */
 
-bot.onText(/^\/contas(?:@\w+)?\s*$/, guarded(async (msg) => {
+bot.onText(cmd('contas'), guarded(async (msg) => {
   const { data: bills, error } = await sb.from('fixed_bills').select('*').eq('active', true)
     .order('created_at', { ascending: true }).order('name', { ascending: true });
   if (error) throw error;
   if (!bills || !bills.length) {
-    await bot.sendMessage(msg.chat.id, 'Nenhuma conta fixa cadastrada.');
+    await bot.sendMessage(msg.chat.id, 'Nenhuma conta fixa cadastrada. Use /conta Nome 50,00 para criar.');
     return;
   }
   const lines = bills.map((x) => `• ${esc(x.name)}: <b>${brl(x.amount)}</b>`);
   await bot.sendMessage(msg.chat.id,
     `📌 <b>CONTAS FIXAS</b>\n${lines.join('\n')}\n\nTotal: <b>${brl(sumOf(bills))}</b>`, html);
+}));
+
+// Cria a conta OU atualiza o valor se o nome já existir (nunca duplica).
+bot.onText(cmd('conta'), guarded(async (msg, match) => {
+  const chatId = msg.chat.id;
+  const m = (match[1] || '').trim().match(/^(.+?)\s+(?:R\$\s*)?([\d.,]+)$/i);
+  const amount = m ? parseAmount(m[2]) : NaN;
+  if (!m || !validAmount(amount)) {
+    await bot.sendMessage(chatId, 'Uso: /conta Nome 39,90\nExemplo: /conta Plano de crédito 30\nSe a conta já existir, só atualizo o valor.');
+    return;
+  }
+  const name = m[1].trim().replace(/\s+/g, ' ').slice(0, 60);
+
+  const { data: all, error } = await sb.from('fixed_bills').select('id, name, amount, active');
+  if (error) throw error;
+  const found = (all || []).find((b) => normKey(b.name) === normKey(name));
+
+  if (found) {
+    const { error: e2 } = await sb.from('fixed_bills').update({ amount, active: true }).eq('id', found.id);
+    if (e2) throw e2;
+    const same = Number(found.amount) === amount && found.active;
+    await bot.sendMessage(chatId, same
+      ? `ℹ️ <b>${esc(found.name)}</b> já existe com esse valor (${brl(amount)}). Nada mudou.`
+      : `🔄 <b>${esc(found.name)}</b> atualizada: ${brl(found.amount)} → <b>${brl(amount)}</b>`, html);
+    return;
+  }
+
+  const { error: e3 } = await sb.from('fixed_bills').insert({ name, amount });
+  if (e3) {
+    if (e3.code === '23505') {
+      await bot.sendMessage(chatId, 'ℹ️ Essa conta já existe. Mande o comando de novo para atualizar o valor.');
+      return;
+    }
+    throw e3;
+  }
+  await bot.sendMessage(chatId, `📌 Conta fixa <b>${esc(name)}</b> criada: <b>${brl(amount)}</b>/mês.`, html);
+}));
+
+/* ---------- /salario ---------- */
+
+bot.onText(cmd('salario'), guarded(async (msg, match) => {
+  const chatId = msg.chat.id;
+  if (!match[1] || !match[1].trim()) {
+    const { data, error } = await sb.from('settings').select('salary').eq('id', 1).single();
+    if (error) throw error;
+    await bot.sendMessage(chatId, `💼 Salário atual: <b>${brl(data.salary)}</b>\nPara alterar: /salario 2800`, html);
+    return;
+  }
+  const amount = parseAmount(match[1].trim());
+  if (!Number.isFinite(amount) || amount < 0 || amount >= 100000000) {
+    await bot.sendMessage(chatId, 'Não entendi o valor. Exemplo: /salario 2800');
+    return;
+  }
+  const { error } = await sb.from('settings').update({ salary: amount, updated_at: new Date().toISOString() }).eq('id', 1);
+  if (error) throw error;
+  await bot.sendMessage(chatId, `💼 Salário atualizado para <b>${brl(amount)}</b>.`, html);
 }));
 
 /* ============================================================
@@ -553,25 +757,47 @@ bot.setMyCommands([
   { command: 'entrada', description: 'Registrar entrada' },
   { command: 'acrescimo', description: 'Registrar acréscimo' },
   { command: 'retirada', description: 'Registrar retirada' },
+  { command: 'desfazer', description: 'Excluir a última movimentação' },
   { command: 'resumo', description: 'Resumo completo do mês' },
   { command: 'extrato', description: 'Últimas 10 movimentações' },
   { command: 'contas', description: 'Contas fixas' },
+  { command: 'conta', description: 'Criar/atualizar conta fixa' },
+  { command: 'salario', description: 'Ver ou alterar o salário' },
   { command: 'ajuda', description: 'Lista de comandos' },
 ]).catch((e) => console.error('setMyCommands:', e.message));
 
 // Servidor HTTP mínimo: o Render (web service gratuito) exige uma porta aberta
-// e só mantém o serviço acordado se receber requisições (use um pinger, veja o passo a passo).
-const http = require('http');
+// e só mantém o serviço acordado se receber requisições (use um pinger, veja o README).
 const PORT = process.env.PORT || 3000;
-http
+const server = http
   .createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Bot online ✅');
   })
   .listen(PORT, () => console.log(`Servidor HTTP na porta ${PORT}`));
 
-bot.on('polling_error', (e) => console.error('polling_error:', e.code || '', e.message));
+let warned409 = false;
+bot.on('polling_error', (e) => {
+  console.error('polling_error:', e.code || '', e.message);
+  if (!warned409 && /409/.test(String(e.message))) {
+    warned409 = true;
+    console.error('⚠️  Há OUTRA cópia do bot rodando com este mesmo token (outro deploy, seu PC, outro serviço). Desligue as extras para evitar respostas duplicadas.');
+  }
+});
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
+
+// Desliga limpo em deploys/reinícios (evita duas cópias respondendo ao mesmo tempo)
+let closing = false;
+function shutdown(signal) {
+  if (closing) return;
+  closing = true;
+  console.log(`${signal} recebido, encerrando…`);
+  server.close();
+  bot.stopPolling({ cancel: true }).catch(() => {}).finally(() => process.exit(0));
+  setTimeout(() => process.exit(0), 5000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 if (ALLOWED.length === 0) {
   console.warn('⚠️  ALLOWED_CHAT_ID não definido: qualquer pessoa que achar o bot pode usá-lo. Mande /id ao bot e configure.');
