@@ -5,18 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0D1020">
 <title>Meu Financeiro</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E💰%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--bg:#0D1020;--s1:#151933;--s2:#1D2245;--line:#2A3058;--ink:#ECEEFB;--mute:#8E94BA;--violet:#8B7CFF;--coral:#FF6B7A;--amber:#FFB454;--mint:#3DDC97;color-scheme:dark}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:500 15px/1.5 Manrope,system-ui,sans-serif;font-variant-numeric:tabular-nums;padding:20px 16px 72px}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:500 15px/1.5 Manrope,system-ui,sans-serif;font-variant-numeric:tabular-nums;padding:20px 16px 88px}
 .wrap{max-width:1080px;margin:0 auto}
 h1,h2,h3,.big,.num{font-family:Sora,sans-serif}
 button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+button:disabled{cursor:progress;opacity:.6}
 :focus-visible{outline:2px solid var(--violet);outline-offset:2px}
-input{font:inherit;color:var(--ink);background:var(--s2);border:1px solid var(--line);border-radius:12px;padding:11px 12px;width:100%;min-width:0}
+input,select{font:inherit;color:var(--ink);background:var(--s2);border:1px solid var(--line);border-radius:12px;padding:11px 12px;width:100%;min-width:0}
+select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--mute) 50%),linear-gradient(135deg,var(--mute) 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px;background-repeat:no-repeat;padding-right:34px}
 input::placeholder{color:#5E6490}
 label{display:block;font-size:.8rem;color:var(--mute);margin:0 0 6px;font-weight:600}
 .pos{color:var(--mint)}.neg{color:var(--coral)}
@@ -27,15 +32,21 @@ label{display:block;font-size:.8rem;color:var(--mute);margin:0 0 6px;font-weight
 .months{display:flex;align-items:center;gap:4px;background:var(--s1);border:1px solid var(--line);border-radius:999px;padding:4px}
 .months button{width:36px;height:36px;border-radius:50%;font-size:1.2rem;color:var(--mute)}
 .months button:hover{background:var(--s2);color:var(--ink)}
+.months .now{width:auto;padding:0 12px;font-size:.78rem;font-weight:700;color:var(--violet)}
 .months span{min-width:150px;text-align:center;font-weight:700;text-transform:capitalize}
 .sync{display:flex;align-items:center;gap:8px;font-size:.8rem;color:var(--mute)}
 .sync i{width:9px;height:9px;border-radius:50%;background:var(--amber)}
 .sync i.on{background:var(--mint);box-shadow:0 0 0 4px #3ddc9722}
+.sync button{color:var(--mute);font-size:.78rem;font-weight:700;text-decoration:underline;text-underline-offset:3px}
+
+.banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#ff6b7a1a;border:1px solid #ff6b7a66;color:var(--ink);border-radius:16px;padding:12px 16px;margin:16px 0 0}
+.banner button{color:var(--coral);font-weight:700}
 
 .hero{background:var(--s1);border:1px solid var(--line);border-radius:28px;padding:32px;margin:20px 0 14px}
 .hero p{margin:0}.k{color:var(--mute);font-weight:600}
 .big{font-size:clamp(2.6rem,9vw,4.6rem);font-weight:700;letter-spacing:-.03em;line-height:1.05;margin:6px 0}
 .verdict{color:var(--mute)}
+.delta{color:var(--mute);font-size:.85rem;margin-top:4px!important}
 .split{display:flex;gap:3px;height:18px;margin:26px 0 14px;border-radius:999px;overflow:hidden;background:var(--s2)}
 .split i{min-width:5px;border-radius:5px;transition:flex 1s cubic-bezier(.2,.8,.2,1)}
 .legend{display:flex;flex-wrap:wrap;gap:8px 22px;list-style:none;margin:0;padding:0;font-size:.85rem;color:var(--mute)}
@@ -64,20 +75,25 @@ label{display:block;font-size:.8rem;color:var(--mute);margin:0 0 6px;font-weight
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .fld{margin-top:14px}
 .cta{width:100%;margin-top:16px;padding:13px;border-radius:14px;background:var(--violet);color:#0D1020;font:700 .95rem Sora}
-.cta:hover{filter:brightness(1.1)}
+.cta:hover:not(:disabled){filter:brightness(1.1)}
 .cta.ghost{background:var(--s2);color:var(--ink);border:1px solid var(--line)}
+.cta.danger{background:var(--coral)}
 
-.tools{display:flex;gap:10px;margin:16px 0 4px;flex-wrap:wrap}
+.tools{display:flex;gap:10px;margin:16px 0 12px;flex-wrap:wrap}
 .tools input{flex:1;min-width:140px}
 .day{display:flex;justify-content:space-between;font-size:.8rem;color:var(--mute);margin:20px 0 4px;font-weight:600}
 .day .num{font-size:.8rem}
-.item{display:grid;grid-template-columns:40px 1fr auto 28px;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.item{display:grid;grid-template-columns:40px 1fr auto 28px 28px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
 .item:last-child{border-bottom:0}
 .ic{width:40px;height:40px;border-radius:50%;background:var(--s2);display:grid;place-items:center;font-size:1.1rem}
-.who b{display:block;font-weight:700}.who small{color:var(--mute);font-size:.8rem}
+.who{min-width:0}
+.who b{display:block;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who small{color:var(--mute);font-size:.8rem;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{display:inline-block;font-size:.68rem;font-weight:700;color:var(--violet);border:1px solid var(--line);border-radius:99px;padding:0 7px;margin-left:6px;vertical-align:1px}
 .item .num{font-weight:600;font-size:.92rem;white-space:nowrap}
 .x{color:var(--mute);border-radius:50%;width:28px;height:28px;font-size:.85rem}
 .x:hover{background:#ff6b7a22;color:var(--coral)}
+.x.ed:hover{background:#8b7cff22;color:var(--violet)}
 .empty{color:var(--mute);font-size:.9rem;margin:8px 0}
 
 .bar{margin-bottom:12px}
@@ -92,37 +108,71 @@ label{display:block;font-size:.8rem;color:var(--mute);margin:0 0 6px;font-weight
 .addb{display:grid;grid-template-columns:1fr 96px auto;gap:8px;margin-top:14px}
 .addb button{padding:0 16px;border-radius:12px;background:var(--s2);border:1px solid var(--line);font-weight:700}
 .tot{display:flex;justify-content:space-between;margin-top:12px;font-weight:700}
+.hint{color:var(--mute);font-size:.78rem;margin:8px 0 0}
 
-dialog{background:var(--s1);color:var(--ink);border:1px solid var(--line);border-radius:22px;padding:24px;width:min(360px,92vw)}
+dialog{background:var(--s1);color:var(--ink);border:1px solid var(--line);border-radius:22px;padding:24px;width:min(380px,92vw)}
 dialog::backdrop{background:#070914cc}
-#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,30px);background:var(--ink);color:#0D1020;padding:11px 18px;border-radius:99px;font-weight:700;opacity:0;pointer-events:none;transition:.25s;z-index:9}
-#toast.show{opacity:1;transform:translate(-50%,0)}#toast.err{background:var(--coral)}
+dialog h2{margin:0 0 14px;font-size:1.1rem}
+dialog p{color:var(--mute);margin:0}
+
+#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,30px);background:var(--ink);color:#0D1020;padding:11px 18px;border-radius:99px;font-weight:700;opacity:0;pointer-events:none;transition:.25s;z-index:99;display:flex;align-items:center;gap:14px;max-width:92vw}
+#toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}#toast.err{background:var(--coral)}
+#toast button{color:#4B3FD1;font-weight:800;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
+#toast.err button{color:#0D1020}
+
+#login{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;padding:20px;z-index:50}
+#login form{width:min(380px,100%);background:var(--s1);border:1px solid var(--line);border-radius:24px;padding:28px}
+#login h1{margin:0 0 4px;font-size:1.3rem}
+#login .err{color:var(--coral);font-size:.85rem;min-height:1.2em;margin:12px 0 0}
 
 @media(max-width:860px){
   .cols{grid-template-columns:1fr;grid-template-areas:"form" "led" "cats" "bills"}
   .stats{grid-template-columns:1fr 1fr}
   .hero{padding:24px 20px}
-  .months span{min-width:120px}
+  .months span{min-width:110px}
+  .item{grid-template-columns:36px 1fr auto 28px 28px;gap:8px}
+  .ic{width:36px;height:36px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
-<div class="wrap">
+
+<div id="login" hidden>
+  <form onsubmit="doLogin(event)">
+    <h1>Meu Financeiro</h1>
+    <p class="verdict" style="margin:0 0 18px">Entre para ver e registrar suas finanças.</p>
+    <label for="l-email">E-mail</label>
+    <input id="l-email" type="email" autocomplete="username" required>
+    <div class="fld"><label for="l-pass">Senha</label>
+    <input id="l-pass" type="password" autocomplete="current-password" required></div>
+    <p class="err" id="l-err" role="alert"></p>
+    <button class="cta" type="submit" id="l-btn">Entrar</button>
+  </form>
+</div>
+
+<div class="wrap" id="app">
   <header class="top">
     <div class="brand"><b>Meu Financeiro</b><small>Grupo Star Motos · painel pessoal</small></div>
     <nav class="months" aria-label="Mês">
       <button onclick="shift(-1)" aria-label="Mês anterior">‹</button>
       <span id="month-label"></span>
+      <button class="now" id="btn-now" onclick="goToday()" hidden>Hoje</button>
       <button onclick="shift(1)" aria-label="Próximo mês">›</button>
     </nav>
-    <div class="sync"><i id="dot"></i><span id="sync">Conectando…</span></div>
+    <div class="sync"><i id="dot"></i><span id="sync">Conectando…</span><button id="logout" onclick="doLogout()" hidden>Sair</button></div>
   </header>
 
+  <div class="banner" id="banner" role="alert" hidden>
+    <span id="banner-text"></span>
+    <button onclick="loadAll()">Tentar de novo</button>
+  </div>
+
   <section class="hero">
-    <p class="k">Sobra este mês</p>
+    <p class="k" id="hero-k">Sobra este mês</p>
     <div class="big" id="balance">—</div>
     <p class="verdict" id="verdict"></p>
+    <p class="delta" id="delta"></p>
     <div class="split" id="split"></div>
     <ul class="legend" id="legend"></ul>
   </section>
@@ -135,16 +185,17 @@ dialog::backdrop{background:#070914cc}
   </section>
 
   <div class="cols">
-    <form class="card" id="form" onsubmit="submitTx(event)">
+    <form class="card" id="form" onsubmit="submitTx(event)" novalidate>
       <h2>Nova movimentação</h2>
       <div class="pills" id="types"></div>
       <div class="g2 fld">
         <div><label for="f-amount">Valor (R$)</label><input id="f-amount" inputmode="decimal" placeholder="0,00" autocomplete="off" required></div>
         <div><label for="f-date">Data</label><input id="f-date" type="date"></div>
       </div>
-      <div class="fld"><label for="f-cat">Categoria</label><input id="f-cat" placeholder="Escolha abaixo ou digite outra" autocomplete="off"></div>
+      <div class="fld"><label for="f-cat">Categoria</label><input id="f-cat" list="cat-list" placeholder="Escolha abaixo ou digite outra" autocomplete="off" maxlength="40"></div>
+      <datalist id="cat-list"></datalist>
       <div class="pills fld" id="chips"></div>
-      <div class="fld"><label for="f-desc">Descrição (opcional)</label><input id="f-desc" placeholder="Detalhes rápidos" autocomplete="off"></div>
+      <div class="fld"><label for="f-desc">Descrição (opcional)</label><input id="f-desc" placeholder="Detalhes rápidos" autocomplete="off" maxlength="120"></div>
       <button class="cta" type="submit" id="submit">Registrar</button>
     </form>
 
@@ -166,38 +217,80 @@ dialog::backdrop{background:#070914cc}
       <h2>Contas fixas</h2>
       <div id="bills"></div>
       <div class="addb">
-        <input id="nb-name" placeholder="Nome da conta" aria-label="Nome da conta">
-        <input id="nb-amt" inputmode="decimal" placeholder="Valor" aria-label="Valor da conta">
-        <button onclick="addBill()">Adicionar</button>
+        <input id="nb-name" placeholder="Nome da conta" aria-label="Nome da conta" maxlength="60" onkeydown="if(event.key==='Enter')addBill()">
+        <input id="nb-amt" inputmode="decimal" placeholder="Valor" aria-label="Valor da conta" onkeydown="if(event.key==='Enter')addBill()">
+        <button id="nb-btn" onclick="addBill()">Adicionar</button>
       </div>
+      <p class="hint">Se o nome já existir, você escolhe se quer atualizar o valor.</p>
       <div class="tot"><span>Total ativo</span><span class="num" id="bills-total">—</span></div>
     </section>
   </div>
 </div>
 
-<dialog id="dlg">
+<dialog id="dlg" aria-labelledby="dlg-t">
   <form onsubmit="saveSalary(event)">
-    <h2 style="margin:0 0 14px;font-size:1.1rem">Editar salário</h2>
+    <h2 id="dlg-t">Editar salário</h2>
     <label for="d-sal">Salário mensal (R$)</label>
     <input id="d-sal" inputmode="decimal" required>
     <button class="cta" type="submit">Salvar salário</button>
-    <button class="cta ghost" type="button" onclick="dlg.close()">Cancelar</button>
+    <button class="cta ghost" type="button" onclick="$('dlg').close()">Cancelar</button>
   </form>
 </dialog>
-<div id="toast" role="status"></div>
+
+<dialog id="edlg" aria-labelledby="edlg-t">
+  <form onsubmit="saveEdit(event)" novalidate>
+    <h2 id="edlg-t">Editar movimentação</h2>
+    <label for="e-type">Tipo</label>
+    <select id="e-type"></select>
+    <div class="g2 fld">
+      <div><label for="e-amount">Valor (R$)</label><input id="e-amount" inputmode="decimal" autocomplete="off"></div>
+      <div><label for="e-date">Data</label><input id="e-date" type="date"></div>
+    </div>
+    <div class="fld"><label for="e-cat">Categoria</label><input id="e-cat" list="cat-list" autocomplete="off" maxlength="40"></div>
+    <div class="fld"><label for="e-desc">Descrição</label><input id="e-desc" autocomplete="off" maxlength="120"></div>
+    <button class="cta" type="submit" id="e-save">Salvar alterações</button>
+    <button class="cta ghost" type="button" onclick="$('edlg').close()">Cancelar</button>
+  </form>
+</dialog>
+
+<dialog id="cdlg" aria-labelledby="c-title">
+  <h2 id="c-title"></h2>
+  <p id="c-text"></p>
+  <button class="cta" id="c-ok" type="button"></button>
+  <button class="cta ghost" id="c-no" type="button">Cancelar</button>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script>
 // A anon key foi feita para ficar no cliente: o acesso é controlado pelas policies do banco.
 const CFG = { url: 'https://cantpchtkijvqwlcgklz.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNhbnRwY2h0a2lqdnF3bGNna2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyMDAzNzcsImV4cCI6MjEwNTc3NjM3N30.Te7boSxpucRsa9JtHUBa-Ap18zlNT1WsvqKWHSDvnfk' };
-const sb = supabase.createClient(CFG.url, CFG.key);
+
+// Mude para true depois de seguir o bloco "OPCIONAL B" do sql.txt (exige e-mail e senha para entrar).
+const REQUIRE_LOGIN = false;
+
+const DUP_WINDOW = 3 * 60 * 1000; // mesmo valor + categoria em até 3 min = "parece duplicada"
+let sb = null;
 
 const $ = (id) => document.getElementById(id);
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const brl = (n) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const norm = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-const num = (v) => { v = String(v).replace(/[R$\s]/g, ''); if (v.includes(',')) v = v.replace(/\./g, '').replace(',', '.'); return parseFloat(v); };
+const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const cap = (s) => (s ? s.charAt(0).toLocaleUpperCase('pt-BR') + s.slice(1) : s);
+const uid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
+// Aceita "45", "45,90", "45.90", "1.234,56", "R$ 45" — mesma regra do bot
+const num = (v) => {
+  const s0 = String(v ?? '').replace(/R\$/i, '').replace(/\s/g, '');
+  if (!/^[\d.,]+$/.test(s0)) return NaN;
+  let s = s0;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
+};
+const validAmt = (n) => n > 0 && n < 1e8;
 
 const T = {
   compra:    { l: 'Compra',    i: '🛒', s: -1 },
@@ -212,47 +305,140 @@ const DEF = {
   retirada: [],
 };
 
-let ym = iso(new Date()).slice(0, 7), tx = [], bills = [], salary = 0, type = 'compra', flt = 'all', q = '';
+let ym = iso(new Date()).slice(0, 7), tx = [], bills = [], salary = 0, prevSpent = 0;
+let usedCats = {}; // tipo -> [{name,count}] vindo do histórico inteiro
+let type = 'compra', flt = 'all', q = '';
+let formKey = uid(); // identifica ESTE preenchimento do formulário (anti-duplicidade)
+let editingId = null, loadSeq = 0, wasDown = false;
+const busy = { tx: false, bill: false, edit: false };
 
-function toast(m, err) {
+/* ---------- avisos e diálogos ---------- */
+function toast(msg, o = {}) {
   const e = $('toast');
-  e.textContent = m; e.className = 'show' + (err ? ' err' : '');
-  clearTimeout(toast.t); toast.t = setTimeout(() => (e.className = ''), 2600);
+  e.className = ''; e.textContent = '';
+  const s = document.createElement('span'); s.textContent = msg; e.append(s);
+  if (o.action) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = o.action.label;
+    b.onclick = () => { e.className = ''; o.action.fn(); };
+    e.append(b);
+  }
+  if (o.err) e.classList.add('err');
+  requestAnimationFrame(() => e.classList.add('show'));
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => e.classList.remove('show'), o.ms || (o.action ? 7000 : 2800));
 }
-async function ok(p) {
-  const r = await p;
-  if (r.error) { toast(r.error.message, 1); throw r.error; }
-  return r.data;
+
+function askConfirm(title, text, okLabel = 'Confirmar') {
+  return new Promise((resolve) => {
+    const d = $('cdlg');
+    $('c-title').textContent = title; $('c-text').textContent = text; $('c-ok').textContent = okLabel;
+    let result = false;
+    const done = () => { d.removeEventListener('close', done); resolve(result); };
+    d.addEventListener('close', done);
+    $('c-ok').onclick = () => { result = true; d.close(); };
+    $('c-no').onclick = () => d.close();
+    d.showModal();
+  });
 }
+
+function setBanner(msg) {
+  $('banner').hidden = !msg;
+  if (msg) $('banner-text').textContent = msg;
+}
+
+const friendly = (e) => {
+  if (!e) return 'Erro desconhecido.';
+  if (e.code === '23505') return 'Esse registro já existe.';
+  if (/failed to fetch|network/i.test(e.message || '')) return 'Sem conexão. Verifique a internet e tente de novo.';
+  return e.message || 'Algo deu errado.';
+};
+
 const sum = (t) => tx.filter((x) => x.type === t).reduce((s, x) => s + Number(x.amount), 0);
 const billsTotal = () => bills.filter((b) => b.active).reduce((s, b) => s + Number(b.amount), 0);
+
+/* ---------- categorias (sem duplicar por maiúscula/acento) ---------- */
+function catList(t) {
+  const seen = new Set(), list = [];
+  const hist = usedCats[t] || [];
+  const byKey = new Map(hist.map((h) => [norm(h.name), h.name]));
+  // padrão primeiro (mantendo a grafia que você já usou), depois as mais usadas
+  const add = (name) => { const k = norm(name); if (k && !seen.has(k)) { seen.add(k); list.push(byKey.get(k) || name); } };
+  DEF[t].forEach(add);
+  hist.forEach((h) => add(h.name));
+  tx.filter((x) => x.type === t && x.category).forEach((x) => add(x.category));
+  return list;
+}
+function canonCat(t, name) {
+  const clean = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+  if (!clean) return null;
+  const hit = catList(t).find((c) => norm(c) === norm(clean));
+  return hit || cap(clean);
+}
 
 /* ---------- carregar ---------- */
 function setDate() { $('f-date').value = ym === iso(new Date()).slice(0, 7) ? iso(new Date()) : ym + '-01'; }
 function shift(n) {
   const [y, m] = ym.split('-').map(Number);
   ym = iso(new Date(y, m - 1 + n, 1)).slice(0, 7);
-  setDate(); loadTx();
+  setDate(); loadAll();
 }
-async function loadTx() {
+function goToday() { ym = iso(new Date()).slice(0, 7); setDate(); loadAll(); }
+
+let refreshTimer = null;
+function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(loadAll, 200); }
+
+async function loadAll() {
+  const seq = ++loadSeq;
   const [y, m] = ym.split('-').map(Number), last = new Date(y, m, 0).getDate();
-  tx = await ok(sb.from('transactions').select('*')
-    .gte('occurred_on', ym + '-01').lte('occurred_on', `${ym}-${pad(last)}`)
-    .order('occurred_on', { ascending: false }).order('created_at', { ascending: false }));
-  $('month-label').textContent = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-  renderAll();
-}
-async function loadBills() {
-  const s = await ok(sb.from('settings').select('salary').eq('id', 1).single());
-  salary = Number(s.salary);
-  bills = await ok(sb.from('fixed_bills').select('*').order('created_at').order('name'));
-  renderAll();
+  const pStart = iso(new Date(y, m - 2, 1)), pEnd = iso(new Date(y, m - 1, 0));
+  try {
+    const [s, b, t, p, c] = await Promise.all([
+      sb.from('settings').select('salary').eq('id', 1).maybeSingle(),
+      sb.from('fixed_bills').select('*').order('created_at').order('name'),
+      sb.from('transactions').select('*').gte('occurred_on', ym + '-01').lte('occurred_on', `${ym}-${pad(last)}`)
+        .order('occurred_on', { ascending: false }).order('created_at', { ascending: false }),
+      sb.from('transactions').select('amount').in('type', ['compra', 'retirada']).gte('occurred_on', pStart).lte('occurred_on', pEnd),
+      sb.from('transactions').select('type, category').not('category', 'is', null).order('created_at', { ascending: false }).limit(1000),
+    ]);
+    if (seq !== loadSeq) return; // uma carga mais nova já chegou
+    const err = [s, b, t, p, c].find((r) => r.error);
+    if (err) throw err.error;
+
+    salary = s.data ? Number(s.data.salary) : 0;
+    bills = b.data || [];
+    tx = t.data || [];
+    prevSpent = (p.data || []).reduce((acc, x) => acc + Number(x.amount), 0);
+
+    const counts = {};
+    (c.data || []).forEach((r) => {
+      const map = (counts[r.type] ??= new Map());
+      const k = norm(r.category), cur = map.get(k) || { name: r.category.trim(), count: 0 };
+      cur.count++; map.set(k, cur);
+    });
+    usedCats = {};
+    Object.keys(counts).forEach((k) => (usedCats[k] = [...counts[k].values()].sort((a, z) => z.count - a.count)));
+
+    setBanner('');
+    renderAll();
+  } catch (e) {
+    if (seq !== loadSeq) return;
+    setBanner('Não foi possível carregar seus dados: ' + friendly(e));
+  }
 }
 
 /* ---------- desenhar ---------- */
-function renderAll() { renderHero(); renderChips(); renderFilters(); renderLedger(); renderCats(); renderBills(); }
+function renderAll() {
+  const [y, m] = ym.split('-').map(Number);
+  $('month-label').textContent = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  $('btn-now').hidden = ym === iso(new Date()).slice(0, 7);
+  renderHero(); renderChips(); renderFilters(); renderLedger(); renderCats(); renderBills();
+}
 
 function renderHero() {
+  const [y, m] = ym.split('-').map(Number);
+  const isNow = ym === iso(new Date()).slice(0, 7);
+  $('hero-k').textContent = isNow ? 'Sobra este mês' : 'Sobra em ' + new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long' });
   const inc = salary + sum('entrada') + sum('acrescimo');
   const b = billsTotal(), c = sum('compra'), r = sum('retirada');
   const bal = inc - b - c - r, base = Math.max(inc, b + c + r) || 1;
@@ -261,6 +447,9 @@ function renderHero() {
   $('verdict').textContent = bal >= 0
     ? (inc ? `${Math.round((bal / inc) * 100)}% da renda do mês ainda está livre.` : 'Nenhuma renda registrada neste mês.')
     : `Você gastou ${brl(-bal)} acima da renda deste mês.`;
+  $('delta').textContent = (c + r > 0 || prevSpent > 0)
+    ? `Compras e retiradas: ${brl(c + r)} · mês anterior inteiro: ${brl(prevSpent)}`
+    : '';
   const segs = [['Contas fixas', b, 'violet'], ['Compras', c, 'coral'], ['Retiradas', r, 'amber'], ['Sobra', Math.max(bal, 0), 'mint']];
   $('split').innerHTML = segs.filter((s) => s[1] > 0).map((s) => `<i class="${s[2]}" style="flex:${s[1] / base}" title="${s[0]}"></i>`).join('');
   $('legend').innerHTML = segs.map((s) => `<li><i class="${s[2]}"></i>${s[0]} <b>${brl(s[1])}</b></li>`).join('');
@@ -273,12 +462,10 @@ function renderHero() {
 function renderChips() {
   $('types').innerHTML = Object.keys(T).map((k) =>
     `<button type="button" class="pill" aria-pressed="${k === type}" onclick="setType('${k}')">${T[k].l}</button>`).join('');
-  const seen = new Set(), list = [];
-  [...DEF[type], ...tx.filter((x) => x.type === type && x.category).map((x) => x.category)].forEach((c) => {
-    const k = norm(c); if (!seen.has(k)) { seen.add(k); list.push(c); }
-  });
+  const list = catList(type);
   $('chips').innerHTML = list.slice(0, 10).map((c) =>
     `<button type="button" class="pill sm" data-c="${esc(c)}" onclick="$('f-cat').value=this.dataset.c">${esc(c)}</button>`).join('');
+  $('cat-list').innerHTML = list.map((c) => `<option value="${esc(c)}"></option>`).join('');
 }
 function setType(k) { type = k; renderChips(); }
 
@@ -307,101 +494,275 @@ function renderLedger() {
     return `<h3 class="day"><span>${dayLabel(d)}</span><span class="num ${net >= 0 ? 'pos' : 'neg'}">${net >= 0 ? '+' : '−'} ${brl(Math.abs(net))}</span></h3>` +
       days[d].map((x) => {
         const s = T[x.type].s;
-        const sub = [x.description, x.source === 'telegram' ? 'via bot' : ''].filter(Boolean).map(esc).join(' · ');
+        const sub = x.description ? esc(x.description) : '';
+        const tag = x.source === 'telegram' ? '<span class="tag">bot</span>' : '';
         return `<div class="item"><span class="ic">${T[x.type].i}</span>
-          <div class="who"><b>${esc(x.category || T[x.type].l)}</b>${sub ? `<small>${sub}</small>` : ''}</div>
+          <div class="who"><b>${esc(x.category || T[x.type].l)}${tag}</b>${sub ? `<small>${sub}</small>` : ''}</div>
           <span class="num ${s > 0 ? 'pos' : 'neg'}">${s > 0 ? '+' : '−'} ${brl(x.amount)}</span>
-          <button class="x" aria-label="Excluir" onclick="delTx('${x.id}')">✕</button></div>`;
+          <button class="x ed" aria-label="Editar" title="Editar" onclick="openEdit('${x.id}')">✎</button>
+          <button class="x" aria-label="Excluir" title="Excluir" onclick="delTx('${x.id}')">✕</button></div>`;
       }).join('');
   }).join('');
 }
 
 function renderCats() {
-  const m = new Map();
+  const mp = new Map();
   tx.filter((x) => x.type === 'compra').forEach((x) => {
-    const k = norm(x.category || 'sem categoria'), c = m.get(k) || { n: cap(x.category) || 'Sem categoria', v: 0 };
-    c.v += Number(x.amount); m.set(k, c);
+    const k = norm(x.category || 'sem categoria'), c = mp.get(k) || { n: cap(x.category) || 'Sem categoria', v: 0 };
+    c.v += Number(x.amount); mp.set(k, c);
   });
-  const a = [...m.values()].sort((p, r) => r.v - p.v).slice(0, 6);
+  const a = [...mp.values()].sort((p, r) => r.v - p.v).slice(0, 6);
+  const total = sum('compra') || 1;
   $('cats').innerHTML = a.length
-    ? a.map((c) => `<div class="bar"><div><span>${esc(c.n)}</span><b class="num">${brl(c.v)}</b></div><i style="width:${(c.v / a[0].v * 100).toFixed(0)}%"></i></div>`).join('')
+    ? a.map((c) => `<div class="bar"><div><span>${esc(c.n)} <small style="color:var(--mute)">${Math.round(c.v / total * 100)}%</small></span><b class="num">${brl(c.v)}</b></div><i style="width:${(c.v / a[0].v * 100).toFixed(0)}%"></i></div>`).join('')
     : '<p class="empty">Nenhuma compra neste mês.</p>';
 }
-const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 function renderBills() {
   $('bills').innerHTML = bills.length ? bills.map((b) => `<div class="bill">
-    <input type="checkbox" class="sw" ${b.active ? 'checked' : ''} aria-label="Conta ativa" onchange="upBill('${b.id}',{active:this.checked})">
+    <input type="checkbox" class="sw" ${b.active ? 'checked' : ''} aria-label="Conta ativa: ${esc(b.name)}" onchange="upBill('${b.id}',{active:this.checked})">
     <span class="${b.active ? '' : 'off'}">${esc(b.name)}</span>
-    <input class="amt" inputmode="decimal" value="${Number(b.amount).toFixed(2)}" aria-label="Valor" onchange="upBill('${b.id}',{amount:num(this.value)||0})">
-    <button class="x" aria-label="Excluir" onclick="delBill('${b.id}')">✕</button></div>`).join('')
+    <input class="amt" inputmode="decimal" value="${Number(b.amount).toFixed(2)}" aria-label="Valor de ${esc(b.name)}" onchange="upBillAmount('${b.id}',this)">
+    <button class="x" aria-label="Excluir ${esc(b.name)}" onclick="delBill('${b.id}')">✕</button></div>`).join('')
     : '<p class="empty">Nenhuma conta fixa. Adicione a primeira abaixo.</p>';
   $('bills-total').textContent = brl(billsTotal());
 }
 
-/* ---------- ações ---------- */
+/* ---------- movimentações ---------- */
+function findSimilar(row) {
+  const now = Date.now();
+  return tx.find((x) => x.type === row.type && Number(x.amount) === row.amount &&
+    norm(x.category || '') === norm(row.category || '') && x.occurred_on === row.occurred_on &&
+    x.created_at && now - new Date(x.created_at).getTime() < DUP_WINDOW);
+}
+
 async function submitTx(e) {
   e.preventDefault();
+  if (busy.tx) return; // segura duplo clique / Enter repetido
   const amount = num($('f-amount').value);
-  if (!(amount > 0)) return toast('Informe um valor maior que zero.', 1);
-  await ok(sb.from('transactions').insert({
+  if (!validAmt(amount)) return toast('Informe um valor maior que zero.', { err: 1 });
+
+  const row = {
     type, amount,
-    category: $('f-cat').value.trim() || null,
+    category: canonCat(type, $('f-cat').value),
     description: $('f-desc').value.trim() || null,
     occurred_on: $('f-date').value || iso(new Date()),
     source: 'site',
-  }));
-  ['f-amount', 'f-cat', 'f-desc'].forEach((i) => ($(i).value = ''));
-  toast(T[type].l + ' registrada.');
-  loadTx();
+    client_id: 'site:' + formKey, // mesmo preenchimento nunca grava duas vezes
+  };
+
+  busy.tx = true;
+  const btn = $('submit'); btn.disabled = true; btn.textContent = 'Registrando…';
+  try {
+    if (findSimilar(row)) {
+      const go = await askConfirm('Parece duplicada',
+        `Você já registrou ${T[type].l.toLowerCase()} de ${brl(amount)}${row.category ? ' em ' + row.category : ''} há poucos minutos. Registrar mesmo assim?`,
+        'Registrar mesmo assim');
+      if (!go) return;
+    }
+    const { error } = await sb.from('transactions').insert(row);
+    if (error && error.code !== '23505') throw error;
+    ['f-amount', 'f-cat', 'f-desc'].forEach((i) => ($(i).value = ''));
+    formKey = uid(); // formulário "novo" para a próxima movimentação
+    toast(error ? 'Essa movimentação já estava registrada.' : T[type].l + ' registrada.');
+    $('f-amount').focus();
+    await loadAll();
+  } catch (err) {
+    toast(friendly(err), { err: 1 }); // formKey mantida: tentar de novo não duplica
+  } finally {
+    busy.tx = false; btn.disabled = false; btn.textContent = 'Registrar';
+  }
 }
+
 async function delTx(id) {
-  if (!confirm('Excluir esta movimentação?')) return;
-  await ok(sb.from('transactions').delete().eq('id', id));
-  toast('Movimentação excluída.'); loadTx();
+  const row = tx.find((x) => x.id === id);
+  if (!row) return;
+  const { error } = await sb.from('transactions').delete().eq('id', id);
+  if (error) return toast(friendly(error), { err: 1 });
+  tx = tx.filter((x) => x.id !== id); renderAll();
+  toast('Movimentação excluída.', {
+    action: {
+      label: 'Desfazer',
+      fn: async () => {
+        const { error: e2 } = await sb.from('transactions').insert(row);
+        if (e2 && e2.code !== '23505') return toast(friendly(e2), { err: 1 });
+        toast('Movimentação restaurada.'); loadAll();
+      },
+    },
+  });
+  loadAll();
 }
-async function upBill(id, p) { await ok(sb.from('fixed_bills').update(p).eq('id', id)); loadBills(); }
+
+function openEdit(id) {
+  const x = tx.find((r) => r.id === id);
+  if (!x) return;
+  editingId = id;
+  $('e-type').innerHTML = Object.keys(T).map((k) => `<option value="${k}" ${k === x.type ? 'selected' : ''}>${T[k].l}</option>`).join('');
+  $('e-amount').value = Number(x.amount).toFixed(2).replace('.', ',');
+  $('e-date').value = x.occurred_on;
+  $('e-cat').value = x.category || '';
+  $('e-desc').value = x.description || '';
+  $('edlg').showModal();
+}
+async function saveEdit(e) {
+  e.preventDefault();
+  if (busy.edit || !editingId) return;
+  const amount = num($('e-amount').value);
+  if (!validAmt(amount)) return toast('Informe um valor maior que zero.', { err: 1 });
+  const t = $('e-type').value;
+  busy.edit = true; $('e-save').disabled = true;
+  try {
+    const { error } = await sb.from('transactions').update({
+      type: t, amount,
+      category: canonCat(t, $('e-cat').value),
+      description: $('e-desc').value.trim() || null,
+      occurred_on: $('e-date').value || iso(new Date()),
+    }).eq('id', editingId);
+    if (error) throw error;
+    $('edlg').close(); toast('Alterações salvas.'); await loadAll();
+  } catch (err) {
+    toast(friendly(err), { err: 1 });
+  } finally {
+    busy.edit = false; $('e-save').disabled = false;
+  }
+}
+
+/* ---------- contas fixas ---------- */
+async function upBill(id, p) {
+  const { error } = await sb.from('fixed_bills').update(p).eq('id', id);
+  if (error) toast(friendly(error), { err: 1 });
+  loadAll();
+}
+function upBillAmount(id, input) {
+  const n = num(input.value);
+  if (!validAmt(n)) {
+    toast('Valor inválido. Use um número maior que zero.', { err: 1 });
+    const b = bills.find((x) => x.id === id);
+    if (b) input.value = Number(b.amount).toFixed(2);
+    return;
+  }
+  upBill(id, { amount: n });
+}
 async function delBill(id) {
-  if (!confirm('Excluir esta conta fixa?')) return;
-  await ok(sb.from('fixed_bills').delete().eq('id', id));
-  toast('Conta excluída.'); loadBills();
+  const row = bills.find((b) => b.id === id);
+  if (!row) return;
+  const { error } = await sb.from('fixed_bills').delete().eq('id', id);
+  if (error) return toast(friendly(error), { err: 1 });
+  bills = bills.filter((b) => b.id !== id); renderAll();
+  toast('Conta excluída.', {
+    action: {
+      label: 'Desfazer',
+      fn: async () => {
+        const { error: e2 } = await sb.from('fixed_bills').insert(row);
+        if (e2) return toast(e2.code === '23505' ? 'Já existe uma conta com esse nome.' : friendly(e2), { err: 1 });
+        toast('Conta restaurada.'); loadAll();
+      },
+    },
+  });
+  loadAll();
 }
 async function addBill() {
-  const name = $('nb-name').value.trim(), amount = num($('nb-amt').value);
-  if (!name || !(amount > 0)) return toast('Informe o nome e o valor da conta.', 1);
-  await ok(sb.from('fixed_bills').insert({ name, amount }));
-  $('nb-name').value = ''; $('nb-amt').value = '';
-  toast('Conta adicionada.'); loadBills();
+  if (busy.bill) return;
+  const name = $('nb-name').value.trim().replace(/\s+/g, ' '), amount = num($('nb-amt').value);
+  if (!name || !validAmt(amount)) return toast('Informe o nome e o valor da conta.', { err: 1 });
+
+  busy.bill = true; $('nb-btn').disabled = true;
+  try {
+    const exists = bills.find((b) => norm(b.name) === norm(name));
+    if (exists) {
+      const go = await askConfirm('Essa conta já existe',
+        `"${exists.name}" está cadastrada com ${brl(exists.amount)}. Atualizar para ${brl(amount)}?`, 'Atualizar valor');
+      if (!go) return;
+      const { error } = await sb.from('fixed_bills').update({ amount, active: true }).eq('id', exists.id);
+      if (error) throw error;
+      toast('Conta atualizada.');
+    } else {
+      const { error } = await sb.from('fixed_bills').insert({ name, amount });
+      if (error) throw error;
+      toast('Conta adicionada.');
+    }
+    $('nb-name').value = ''; $('nb-amt').value = '';
+    await loadAll();
+  } catch (err) {
+    toast(err.code === '23505' ? 'Essa conta já existe. Atualize a página e edite o valor.' : friendly(err), { err: 1 });
+  } finally {
+    busy.bill = false; $('nb-btn').disabled = false;
+  }
 }
-function openSalary() { $('d-sal').value = salary.toFixed(2); $('dlg').showModal(); }
+
+/* ---------- salário e exportação ---------- */
+function openSalary() { $('d-sal').value = salary.toFixed(2).replace('.', ','); $('dlg').showModal(); }
 async function saveSalary(e) {
   e.preventDefault();
   const n = num($('d-sal').value);
-  if (!(n >= 0)) return;
-  await ok(sb.from('settings').update({ salary: n }).eq('id', 1));
-  $('dlg').close(); toast('Salário atualizado.'); loadBills();
+  if (!(n >= 0) || n >= 1e8) return toast('Informe um valor válido.', { err: 1 });
+  const { error } = await sb.from('settings').upsert({ id: 1, salary: n, updated_at: new Date().toISOString() });
+  if (error) return toast(friendly(error), { err: 1 });
+  $('dlg').close(); toast('Salário atualizado.'); loadAll();
 }
 function exportCsv() {
   const rows = [['data', 'tipo', 'categoria', 'descricao', 'valor', 'origem'],
-    ...tx.map((x) => [x.occurred_on, x.type, x.category || '', x.description || '', Number(x.amount).toFixed(2), x.source || ''])];
-  const csv = rows.map((r) => r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(';')).join('\n');
+    ...tx.map((x) => [x.occurred_on, x.type, x.category || '', x.description || '', Number(x.amount).toFixed(2).replace('.', ','), x.source || ''])];
+  // protege contra "injeção de fórmula" quando aberto no Excel
+  const safe = (v) => { v = String(v); return /^[=+\-@]/.test(v) && !/^-?[\d.,]+$/.test(v) ? "'" + v : v; };
+  const csv = rows.map((r) => r.map((v) => '"' + safe(v).replace(/"/g, '""') + '"').join(';')).join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' }));
   a.download = `financeiro-${ym}.csv`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
-/* ---------- tempo real (site + bot) ---------- */
-sb.channel('financas-sync')
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, loadTx)
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'fixed_bills' }, loadBills)
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, loadBills)
-  .subscribe((s) => {
-    $('dot').className = s === 'SUBSCRIBED' ? 'on' : '';
-    $('sync').textContent = s === 'SUBSCRIBED' ? 'Ao vivo · site e bot' : 'Conectando…';
-  });
+/* ---------- login (opcional) ---------- */
+async function doLogin(e) {
+  e.preventDefault();
+  const btn = $('l-btn'); btn.disabled = true; $('l-err').textContent = '';
+  const { error } = await sb.auth.signInWithPassword({ email: $('l-email').value.trim(), password: $('l-pass').value });
+  btn.disabled = false;
+  if (error) { $('l-err').textContent = 'E-mail ou senha incorretos.'; return; }
+  $('login').hidden = true; $('logout').hidden = false;
+  start();
+}
+async function doLogout() { await sb.auth.signOut(); location.reload(); }
 
-setDate();
-loadBills().then(loadTx).catch(() => {});
+/* ---------- tempo real (site + bot) ---------- */
+function subscribe() {
+  sb.channel('financas-sync')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleRefresh)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'fixed_bills' }, scheduleRefresh)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, scheduleRefresh)
+    .subscribe((s) => {
+      const on = s === 'SUBSCRIBED';
+      $('dot').className = on ? 'on' : '';
+      $('sync').textContent = on ? 'Ao vivo · site e bot' : 'Reconectando…';
+      if (on && wasDown) scheduleRefresh(); // recupera o que aconteceu enquanto estava offline
+      if (!on) wasDown = true;
+    });
+  // ao voltar para a aba (ex.: celular), busca de novo
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleRefresh(); });
+  window.addEventListener('online', scheduleRefresh);
+}
+
+let started = false;
+function start() {
+  if (started) return;
+  started = true;
+  setDate(); subscribe(); loadAll();
+}
+
+async function boot() {
+  if (!window.supabase) {
+    setBanner('Não foi possível carregar a biblioteca do Supabase. Verifique sua internet e recarregue a página.');
+    return;
+  }
+  sb = supabase.createClient(CFG.url, CFG.key);
+  if (REQUIRE_LOGIN) {
+    const { data } = await sb.auth.getSession();
+    if (!data.session) { $('login').hidden = false; return; }
+    $('logout').hidden = false;
+  }
+  start();
+}
+boot();
 </script>
 </body>
 </html>
