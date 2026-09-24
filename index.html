@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meu Financeiro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#EEF1EC; --surface:#FFFFFF; --ink:#16241C; --muted:#5B6B60;
+    --accent:#B8862E; --positive:#2F6B4F; --negative:#A6432F; --line:#D8DED3;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Inter',sans-serif; line-height:1.5;
+    padding:32px 20px 80px;
+  }
+  .wrap{max-width:820px; margin:0 auto;}
+  h1{font-family:'Lora',serif; font-weight:600; font-size:1.9rem; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:0.92rem; margin:0 0 28px;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  .hidden{display:none !important;}
+
+  /* setup screen */
+  #setup{background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:24px; margin-top:12px;}
+  #setup label{display:block; font-size:0.85rem; color:var(--muted); margin:14px 0 4px;}
+  #setup input{width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:0.95rem;}
+  #setup .hint{font-size:0.82rem; color:var(--muted); margin-top:10px;}
+
+  button{
+    font-family:'Inter',sans-serif; font-weight:600; font-size:0.9rem;
+    background:var(--accent); color:#fff; border:none; border-radius:4px;
+    padding:10px 18px; cursor:pointer;
+  }
+  button.secondary{background:transparent; color:var(--ink); border:1px solid var(--line); font-weight:500;}
+  button.link{background:none; border:none; color:var(--muted); text-decoration:underline; padding:2px 0; font-weight:400; cursor:pointer;}
+
+  /* strip of key numbers */
+  .strip{display:flex; gap:0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); margin:22px 0;}
+  .strip .cell{flex:1; padding:16px 18px; border-right:1px solid var(--line);}
+  .strip .cell:last-child{border-right:none;}
+  .strip .label{font-size:0.82rem; color:var(--muted); margin-bottom:6px;}
+  .strip .value{font-family:'JetBrains Mono',monospace; font-size:1.35rem; font-weight:600;}
+  .value.positive{color:var(--positive);}
+  .value.negative{color:var(--negative);}
+
+  .row{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;}
+  section{margin:34px 0;}
+  section h2{font-family:'Lora',serif; font-size:1.15rem; font-weight:600; margin:0 0 14px;}
+
+  form.tx-form{display:grid; grid-template-columns:1fr 1fr; gap:12px; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:18px;}
+  form.tx-form .full{grid-column:1/-1;}
+  form.tx-form label{font-size:0.8rem; color:var(--muted); display:block; margin-bottom:4px;}
+  form.tx-form select, form.tx-form input{width:100%; padding:8px 9px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:0.92rem;}
+  form.tx-form .actions{grid-column:1/-1; display:flex; justify-content:flex-end;}
+
+  .ledger .item{display:flex; align-items:center; gap:12px; padding:12px 4px; border-bottom:1px solid var(--line); font-size:0.9rem;}
+  .ledger .item .date{color:var(--muted); width:78px; flex-shrink:0;}
+  .ledger .item .tag{font-size:0.75rem; padding:2px 7px; border-radius:3px; border:1px solid var(--line); color:var(--muted); flex-shrink:0;}
+  .ledger .item .cat{flex:1; color:var(--ink);}
+  .ledger .item .cat .desc{color:var(--muted); font-size:0.82rem;}
+  .ledger .item .amt{font-family:'JetBrains Mono',monospace; font-weight:600; width:110px; text-align:right;}
+  .ledger .item .del{background:none; border:none; color:var(--muted); cursor:pointer; font-size:1rem; padding:0 2px;}
+  .empty{color:var(--muted); font-size:0.88rem; padding:14px 4px;}
+
+  .bills .item{display:flex; align-items:center; gap:10px; padding:10px 4px; border-bottom:1px solid var(--line);}
+  .bills .item .name{flex:1;}
+  .bills .item input.amt-edit{width:100px; font-family:'JetBrains Mono',monospace; text-align:right; padding:6px 8px; border:1px solid var(--line); border-radius:4px;}
+  .add-bill{display:flex; gap:8px; margin-top:12px;}
+  .add-bill input{flex:1; padding:8px 9px; border:1px solid var(--line); border-radius:4px;}
+  .add-bill input.amt{max-width:120px; font-family:'JetBrains Mono',monospace;}
+
+  .filters{display:flex; gap:10px; align-items:center; margin-bottom:14px;}
+  .filters input[type=month]{padding:7px 9px; border:1px solid var(--line); border-radius:4px; font-family:inherit;}
+
+  footer{margin-top:40px; font-size:0.8rem; color:var(--muted); display:flex; justify-content:space-between;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="setup">
+    <h1>Meu Financeiro</h1>
+    <p class="sub">Conecte seu projeto Supabase para começar. Cole a URL e a chave anon (Project Settings → API).</p>
+    <label>Project URL</label>
+    <input id="cfg-url" type="text" placeholder="https://xxxxx.supabase.co">
+    <label>Anon public key</label>
+    <input id="cfg-key" type="text" placeholder="eyJ...">
+    <div class="row" style="margin-top:16px;">
+      <button onclick="connect()">Conectar</button>
+      <span id="cfg-error" style="color:var(--negative); font-size:0.85rem;"></span>
+    </div>
+    <p class="hint">As credenciais ficam salvas só neste navegador (localStorage), não são enviadas a mais ninguém.</p>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="row">
+      <div>
+        <h1>Meu Financeiro</h1>
+        <p class="sub">Grupo Star Motos · painel pessoal de contas</p>
+      </div>
+      <button class="link" onclick="showSetupAgain()">trocar credenciais</button>
+    </div>
+
+    <div class="filters">
+      <label for="month-filter" style="font-size:0.85rem; color:var(--muted);">Mês</label>
+      <input id="month-filter" type="month" onchange="onMonthChange()">
+      <button class="link" onclick="editSalary()">editar salário</button>
+    </div>
+
+    <div class="strip">
+      <div class="cell"><div class="label">Salário</div><div class="value mono" id="sum-salary">—</div></div>
+      <div class="cell"><div class="label">Contas fixas</div><div class="value mono negative" id="sum-bills">—</div></div>
+      <div class="cell"><div class="label">Entradas + acréscimos</div><div class="value mono positive" id="sum-in">—</div></div>
+      <div class="cell"><div class="label">Compras + retiradas</div><div class="value mono negative" id="sum-out">—</div></div>
+      <div class="cell"><div class="label">Saldo do mês</div><div class="value mono" id="sum-balance">—</div></div>
+    </div>
+
+    <section>
+      <h2>Nova movimentação</h2>
+      <form class="tx-form" onsubmit="return submitTx(event)">
+        <div>
+          <label>Tipo</label>
+          <select id="tx-type">
+            <option value="compra">Compra</option>
+            <option value="retirada">Retirada de dinheiro</option>
+            <option value="entrada">Entrada</option>
+            <option value="acrescimo">Acréscimo</option>
+          </select>
+        </div>
+        <div>
+          <label>Valor (R$)</label>
+          <input id="tx-amount" type="number" step="0.01" min="0" required>
+        </div>
+        <div>
+          <label>Categoria</label>
+          <input id="tx-category" list="cat-list" placeholder="ex: mercado, salário extra...">
+          <datalist id="cat-list">
+            <option value="Mercado"><option value="Combustível"><option value="Alimentação">
+            <option value="Lazer"><option value="Saúde"><option value="Salário extra">
+            <option value="Freela"><option value="Bônus"><option value="Comissão"><option value="Outros">
+          </datalist>
+        </div>
+        <div>
+          <label>Data</label>
+          <input id="tx-date" type="date">
+        </div>
+        <div class="full">
+          <label>Descrição (opcional)</label>
+          <input id="tx-desc" type="text" placeholder="detalhes rápidos">
+        </div>
+        <div class="actions"><button type="submit">Registrar</button></div>
+      </form>
+    </section>
+
+    <section>
+      <h2>Movimentações do mês</h2>
+      <div class="ledger" id="tx-list"></div>
+    </section>
+
+    <section>
+      <h2>Contas fixas</h2>
+      <div class="bills" id="bills-list"></div>
+      <div class="add-bill">
+        <input id="new-bill-name" type="text" placeholder="nome da conta">
+        <input id="new-bill-amount" type="number" step="0.01" class="amt" placeholder="valor">
+        <button class="secondary" onclick="addBill()">Adicionar</button>
+      </div>
+    </section>
+
+    <footer>
+      <span>Dados salvos no seu projeto Supabase.</span>
+      <span id="bot-hint">Registre também pelo bot do Telegram, mesmo banco de dados.</span>
+    </footer>
+  </div>
+</div>
+
+<script>
+let sb, currentMonth;
+
+function getConfig(){ try{ return JSON.parse(localStorage.getItem('financas_sb_config')); }catch(e){ return null; } }
+function setConfig(cfg){ localStorage.setItem('financas_sb_config', JSON.stringify(cfg)); }
+
+function showSetupAgain(){
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('setup').classList.remove('hidden');
+  const cfg = getConfig();
+  if(cfg){ document.getElementById('cfg-url').value = cfg.url; document.getElementById('cfg-key').value = cfg.key; }
+}
+
+async function connect(){
+  const url = document.getElementById('cfg-url').value.trim();
+  const key = document.getElementById('cfg-key').value.trim();
+  const errEl = document.getElementById('cfg-error');
+  errEl.textContent = '';
+  if(!url || !key){ errEl.textContent = 'Preencha URL e chave.'; return; }
+  try{
+    const client = window.supabase.createClient(url, key);
+    const { error } = await client.from('settings').select('*').limit(1);
+    if(error) throw error;
+    setConfig({ url, key });
+    sb = client;
+    document.getElementById('setup').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    boot();
+  }catch(e){
+    errEl.textContent = 'Não conectou: ' + (e.message || e);
+  }
+}
+
+function boot(){
+  const now = new Date();
+  currentMonth = now.toISOString().slice(0,7);
+  document.getElementById('month-filter').value = currentMonth;
+  document.getElementById('tx-date').value = now.toISOString().slice(0,10);
+  loadAll();
+}
+
+function onMonthChange(){
+  currentMonth = document.getElementById('month-filter').value;
+  loadAll();
+}
+
+async function loadAll(){
+  await Promise.all([loadSettingsAndBills(), loadTransactions()]);
+}
+
+let cachedSalary = 0, cachedBills = [];
+
+async function loadSettingsAndBills(){
+  const { data: settings } = await sb.from('settings').select('salary').eq('id',1).single();
+  cachedSalary = settings ? Number(settings.salary) : 0;
+  const { data: bills } = await sb.from('fixed_bills').select('*').order('created_at');
+  cachedBills = bills || [];
+  renderBills();
+  renderSummary();
+}
+
+function renderBills(){
+  const el = document.getElementById('bills-list');
+  el.innerHTML = '';
+  if(!cachedBills.length){ el.innerHTML = '<div class="empty">Nenhuma conta fixa cadastrada.</div>'; return; }
+  cachedBills.forEach(b => {
+    const row = document.createElement('div');
+    row.className = 'item';
+    row.innerHTML = `
+      <input type="checkbox" ${b.active ? 'checked' : ''} title="ativa" onchange="toggleBill('${b.id}', this.checked)">
+      <div class="name">${b.name}</div>
+      <input class="amt-edit" type="number" step="0.01" value="${Number(b.amount).toFixed(2)}" onchange="updateBillAmount('${b.id}', this.value)">
+      <button class="del" title="excluir" onclick="deleteBill('${b.id}')">✕</button>
+    `;
+    el.appendChild(row);
+  });
+}
+
+async function toggleBill(id, active){
+  await sb.from('fixed_bills').update({ active }).eq('id', id);
+  loadSettingsAndBills();
+}
+async function updateBillAmount(id, value){
+  await sb.from('fixed_bills').update({ amount: parseFloat(value) || 0 }).eq('id', id);
+  loadSettingsAndBills();
+}
+async function deleteBill(id){
+  if(!confirm('Excluir esta conta fixa?')) return;
+  await sb.from('fixed_bills').delete().eq('id', id);
+  loadSettingsAndBills();
+}
+async function addBill(){
+  const name = document.getElementById('new-bill-name').value.trim();
+  const amount = parseFloat(document.getElementById('new-bill-amount').value);
+  if(!name || !amount){ return; }
+  await sb.from('fixed_bills').insert({ name, amount });
+  document.getElementById('new-bill-name').value = '';
+  document.getElementById('new-bill-amount').value = '';
+  loadSettingsAndBills();
+}
+
+async function editSalary(){
+  const val = prompt('Novo salário (R$):', cachedSalary.toFixed(2));
+  if(val === null) return;
+  const n = parseFloat(val.replace(',','.'));
+  if(isNaN(n)) return;
+  await sb.from('settings').update({ salary: n }).eq('id', 1);
+  loadSettingsAndBills();
+}
+
+let cachedTx = [];
+
+async function loadTransactions(){
+  const start = currentMonth + '-01';
+  const [y,m] = currentMonth.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const end = currentMonth + '-' + String(lastDay).padStart(2,'0');
+  const { data } = await sb.from('transactions').select('*')
+    .gte('occurred_on', start).lte('occurred_on', end)
+    .order('occurred_on', { ascending: false });
+  cachedTx = data || [];
+  renderTx();
+  renderSummary();
+}
+
+function renderTx(){
+  const el = document.getElementById('tx-list');
+  el.innerHTML = '';
+  if(!cachedTx.length){ el.innerHTML = '<div class="empty">Nenhuma movimentação neste mês ainda.</div>'; return; }
+  const labels = { entrada:'Entrada', compra:'Compra', retirada:'Retirada', acrescimo:'Acréscimo' };
+  cachedTx.forEach(t => {
+    const isPositive = t.type === 'entrada' || t.type === 'acrescimo';
+    const row = document.createElement('div');
+    row.className = 'item';
+    row.innerHTML = `
+      <div class="date mono">${t.occurred_on.slice(8,10)}/${t.occurred_on.slice(5,7)}</div>
+      <div class="tag">${labels[t.type] || t.type}${t.source === 'telegram' ? ' · tg' : ''}</div>
+      <div class="cat">${t.category || '—'}${t.description ? '<div class="desc">'+t.description+'</div>' : ''}</div>
+      <div class="amt ${isPositive ? 'positive' : 'negative'}">${isPositive?'+':'-'} R$ ${Number(t.amount).toFixed(2)}</div>
+      <button class="del" onclick="deleteTx('${t.id}')">✕</button>
+    `;
+    el.appendChild(row);
+  });
+}
+
+async function deleteTx(id){
+  if(!confirm('Excluir esta movimentação?')) return;
+  await sb.from('transactions').delete().eq('id', id);
+  loadTransactions();
+}
+
+async function submitTx(ev){
+  ev.preventDefault();
+  const type = document.getElementById('tx-type').value;
+  const amount = parseFloat(document.getElementById('tx-amount').value);
+  const category = document.getElementById('tx-category').value.trim() || null;
+  const description = document.getElementById('tx-desc').value.trim() || null;
+  const date = document.getElementById('tx-date').value || new Date().toISOString().slice(0,10);
+  if(!amount || amount <= 0) return false;
+  await sb.from('transactions').insert({ type, amount, category, description, occurred_on: date, source: 'site' });
+  document.getElementById('tx-amount').value = '';
+  document.getElementById('tx-category').value = '';
+  document.getElementById('tx-desc').value = '';
+  loadTransactions();
+  return false;
+}
+
+function renderSummary(){
+  const sum = (type) => cachedTx.filter(t => t.type === type).reduce((s,t)=>s+Number(t.amount),0);
+  const entradas = sum('entrada') + sum('acrescimo');
+  const saidas = sum('compra') + sum('retirada');
+  const totalBills = cachedBills.filter(b=>b.active).reduce((s,b)=>s+Number(b.amount),0);
+  const balance = cachedSalary + entradas - saidas - totalBills;
+
+  document.getElementById('sum-salary').textContent = 'R$ ' + cachedSalary.toFixed(2);
+  document.getElementById('sum-bills').textContent = 'R$ ' + totalBills.toFixed(2);
+  document.getElementById('sum-in').textContent = 'R$ ' + entradas.toFixed(2);
+  document.getElementById('sum-out').textContent = 'R$ ' + saidas.toFixed(2);
+  const balEl = document.getElementById('sum-balance');
+  balEl.textContent = 'R$ ' + balance.toFixed(2);
+  balEl.className = 'value mono ' + (balance >= 0 ? 'positive' : 'negative');
+}
+
+// boot on load
+(function(){
+  const cfg = getConfig();
+  if(cfg){
+    sb = window.supabase.createClient(cfg.url, cfg.key);
+    document.getElementById('setup').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    boot();
+  }
+})();
+</script>
+</body>
+</html>
