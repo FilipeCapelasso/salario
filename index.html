@@ -86,8 +86,8 @@
     <h1>Meu Financeiro</h1>
     <p class="sub">Conecte seu projeto Supabase para começar. Cole a URL e a chave anon (Project Settings → API).</p>
     <label>Project URL</label>
-    <input id="cfg-url" type="text" placeholder="https://cantpchtkijvqwlcgklz.supabase.co">
-    <label>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNhbnRwY2h0a2lqdnF3bGNna2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyMDAzNzcsImV4cCI6MjEwNTc3NjM3N30.Te7boSxpucRsa9JtHUBa-Ap18zlNT1WsvqKWHSDvnfk</label>
+    <input id="cfg-url" type="text" placeholder="https://xxxxx.supabase.co">
+    <label>Anon public key</label>
     <input id="cfg-key" type="text" placeholder="eyJ...">
     <div class="row" style="margin-top:16px;">
       <button onclick="connect()">Conectar</button>
@@ -101,6 +101,7 @@
       <div>
         <h1>Meu Financeiro</h1>
         <p class="sub">Grupo Star Motos · painel pessoal de contas</p>
+        <p class="sub" id="sync-status">🟡 conectando...</p>
       </div>
       <button class="link" onclick="showSetupAgain()">trocar credenciais</button>
     </div>
@@ -179,9 +180,22 @@
 </div>
 
 <script>
-let sb, currentMonth;
+// Credenciais do seu projeto Supabase (anon key é feita para ficar no cliente,
+// o acesso é controlado pelas policies do banco, não por esconder essa chave).
+const DEFAULT_CONFIG = {
+  url: 'https://cantpchtkijvqwlcgklz.supabase.co',
+  key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNhbnRwY2h0a2lqdnF3bGNna2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyMDAzNzcsImV4cCI6MjEwNTc3NjM3N30.Te7boSxpucRsa9JtHUBa-Ap18zlNT1WsvqKWHSDvnfk'
+};
 
-function getConfig(){ try{ return JSON.parse(localStorage.getItem('financas_sb_config')); }catch(e){ return null; } }
+let sb, currentMonth, realtimeChannel;
+
+function getConfig(){
+  try{
+    const saved = JSON.parse(localStorage.getItem('financas_sb_config'));
+    if(saved && saved.url && saved.key) return saved;
+  }catch(e){}
+  return DEFAULT_CONFIG;
+}
 function setConfig(cfg){ localStorage.setItem('financas_sb_config', JSON.stringify(cfg)); }
 
 function showSetupAgain(){
@@ -206,6 +220,7 @@ async function connect(){
     document.getElementById('setup').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
     boot();
+    // boot() already calls subscribeRealtime()
   }catch(e){
     errEl.textContent = 'Não conectou: ' + (e.message || e);
   }
@@ -217,6 +232,22 @@ function boot(){
   document.getElementById('month-filter').value = currentMonth;
   document.getElementById('tx-date').value = now.toISOString().slice(0,10);
   loadAll();
+  subscribeRealtime();
+}
+
+function subscribeRealtime(){
+  if(realtimeChannel){ sb.removeChannel(realtimeChannel); }
+  const statusEl = document.getElementById('sync-status');
+  realtimeChannel = sb.channel('financas-sync')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadTransactions())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'fixed_bills' }, () => loadSettingsAndBills())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, () => loadSettingsAndBills())
+    .subscribe((status) => {
+      if(!statusEl) return;
+      statusEl.textContent = status === 'SUBSCRIBED'
+        ? '🟢 sincronizado em tempo real (site + bot)'
+        : '🟡 conectando...';
+    });
 }
 
 function onMonthChange(){
@@ -361,15 +392,13 @@ function renderSummary(){
   balEl.className = 'value mono ' + (balance >= 0 ? 'positive' : 'negative');
 }
 
-// boot on load
+// boot on load — já vem conectado ao seu Supabase, sem precisar colar nada
 (function(){
   const cfg = getConfig();
-  if(cfg){
-    sb = window.supabase.createClient(cfg.url, cfg.key);
-    document.getElementById('setup').classList.add('hidden');
-    document.getElementById('app').classList.remove('hidden');
-    boot();
-  }
+  sb = window.supabase.createClient(cfg.url, cfg.key);
+  document.getElementById('setup').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  boot();
 })();
 </script>
 </body>
