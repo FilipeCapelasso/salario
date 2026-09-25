@@ -124,6 +124,10 @@ const emojiFor = (cat) => CATEGORY_EMOJI[normKey(cat)] || '🏷️';
 const newToken = () => crypto.randomBytes(4).toString('hex');
 const sumOf = (list) => list.reduce((s, x) => s + Number(x.amount), 0);
 
+// Detecta se uma Entrada/Acréscimo parece ser o salário mensal (para avisar
+// que existe o campo fixo /salario, que evita lançar isso todo mês por engano).
+const looksLikeSalary = (category, description) => /salario/.test(normKey(`${category || ''} ${description || ''}`));
+
 // Aceita "45", "45,90", "45.90", "1.234,56", "R$45"
 function parseAmount(str) {
   if (!str) return NaN;
@@ -312,7 +316,27 @@ function categoryKeyboard(token, buttons) {
 }
 
 // Grava com proteção e responde. `reply(texto, extra)` envia nova mensagem ou edita a existente.
-async function finalize(entry, clientId, reply, { force = false } = {}) {
+async function finalize(entry, clientId, reply, { force = false, skipSalaryCheck = false } = {}) {
+  // Entrada/Acréscimo com cara de "salário" → confirma antes de gravar, porque
+  // provavelmente o certo é usar o campo fixo (/salario), não um lançamento avulso.
+  if (!skipSalaryCheck && (entry.type === 'entrada' || entry.type === 'acrescimo') && looksLikeSalary(entry.category, entry.description)) {
+    const token = newToken();
+    pending.set(token, { kind: 'sal', entry, clientId, createdAt: Date.now() });
+    return reply(
+      `🤔 Isso parece ser o <b>salário</b>.\n\n` +
+      `O campo <b>Salário</b> é fixo: você define uma vez (ou usa /salario) e ele entra <b>todo mês sozinho</b>, sem precisar lançar de novo. Já uma ${TYPES[entry.type].label.toLowerCase()} conta só neste mês, como um extra avulso.\n\n` +
+      `Se <b>${brl(entry.amount)}</b> é o seu salário mensal (não um extra), o certo é ajustar o valor fixo — assim você evita lançar duas vezes por engano.`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '💼 Definir como salário fixo', callback_data: `sal:${token}:edit` }],
+            [{ text: '✅ Não, é um lançamento avulso mesmo', callback_data: `sal:${token}:yes` }],
+          ],
+        },
+      }
+    );
+  }
+
   const r = await commit(entry, { clientId, force });
 
   if (r.status === 'saved') {
@@ -386,7 +410,7 @@ bot.on('callback_query', async (q) => {
   const answer = (opts) => bot.answerCallbackQuery(q.id, opts).catch(() => {});
   try {
     const [kind, a, b] = String(q.data || '').split(':');
-    if (!chatId || !['cat', 'dup', 'undo'].includes(kind)) return answer();
+    if (!chatId || !['cat', 'dup', 'sal', 'undo'].includes(kind)) return answer();
     if (!authorized(chatId)) return answer({ text: 'Acesso não autorizado.', show_alert: true });
 
     const ref = { chat_id: chatId, message_id: q.message.message_id, parse_mode: 'HTML' };
@@ -413,10 +437,25 @@ bot.on('callback_query', async (q) => {
     }
 
     const p = pending.get(a);
-    const valid = p && p.kind === kind && (kind === 'dup' || p.chatId === chatId);
+    const valid = p && p.kind === kind && (kind === 'dup' || kind === 'sal' || p.chatId === chatId);
     if (!valid) {
       await answer({ text: 'Essa seleção expirou. Envie o comando de novo.', show_alert: true });
       await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: q.message.message_id }).catch(() => {});
+      return;
+    }
+
+    /* ---- "parece salário": usar o campo fixo ou lançar mesmo assim ---- */
+    if (kind === 'sal') {
+      pending.delete(a); // um toque só
+      if (b === 'edit') {
+        const { error } = await sb.from('settings').update({ salary: p.entry.amount, updated_at: new Date().toISOString() }).eq('id', 1);
+        if (error) throw error;
+        await answer({ text: 'Salário atualizado.' });
+        await edit(`💼 Salário fixo definido para <b>${brl(p.entry.amount)}</b>.\nA partir de agora ele entra sozinho todo mês — não precisa lançar de novo (nada foi registrado como ${TYPES[p.entry.type].label.toLowerCase()}).`);
+        return;
+      }
+      await answer({ text: 'Registrando…' });
+      await finalize(p.entry, p.clientId, edit, { skipSalaryCheck: true });
       return;
     }
 
@@ -527,7 +566,7 @@ const HELP = `👋 <b>Comandos</b>
 /resumo — resumo do mês (ou /resumo anterior, /resumo 08/2026)
 /extrato — últimas 10 movimentações
 /contas — contas fixas
-/salario — ver ou alterar o salário
+/salario — ver ou alterar o salário <i>(fixo: entra todo mês sozinho — não é uma Entrada avulsa)</i>
 
 <b>Configurar</b>
 /conta Netflix 39,90 — cria ou atualiza uma conta fixa
@@ -674,7 +713,7 @@ async function sendSummary(chatId, monthArg) {
 
   await sendBlocks(chatId, [
     `📊 <b>RESUMO DE ${label}</b>`,
-    `💼 <b>SALÁRIO</b>\n<b>${brl(salary)}</b>`,
+    `💼 <b>SALÁRIO</b> <i>(fixo, todo mês)</i>\n<b>${brl(salary)}</b>`,
     billsLines.join('\n'),
     txSection('ENTRADAS', '📥', entradas, false),
     txSection('ACRÉSCIMOS', '➕', acrescimos, false),
