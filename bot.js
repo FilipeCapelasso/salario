@@ -661,13 +661,13 @@ function txSection(title, emoji, list, withCategories) {
   return lines.join('\n');
 }
 
-async function sendSummary(chatId, monthArg) {
+// Calcula os totais do mês (salário fixo + entradas/acréscimos − contas fixas −
+// compras/retiradas). Usada tanto pelo /resumo quanto pelo /salario, pra garantir
+// que os dois SEMPRE mostrem o mesmo número — sem risco de "conflito" entre eles.
+async function computeMonthTotals(monthArg) {
   const bounds = monthBounds(monthArg);
-  if (!bounds) {
-    await bot.sendMessage(chatId, 'Não entendi o mês. Exemplos: /resumo, /resumo anterior, /resumo 08/2026');
-    return;
-  }
-  const { start, end, label, ym } = bounds;
+  if (!bounds) return null;
+  const { start, end, ym } = bounds;
   const [s, b, t] = await Promise.all([
     sb.from('settings').select('salary').eq('id', 1).single(),
     sb.from('fixed_bills').select('*'),
@@ -692,6 +692,23 @@ async function sendSummary(chatId, monthArg) {
   const totEntradas = sumOf(entradas), totAcrescimos = sumOf(acrescimos);
   const totCompras = sumOf(compras), totRetiradas = sumOf(retiradas);
   const saldo = salary + totEntradas + totAcrescimos - totCompras - totRetiradas - totalBills;
+
+  return {
+    bounds, salary, billRows, bills, totalBills, entradas, acrescimos, compras, retiradas,
+    totEntradas, totAcrescimos, totCompras, totRetiradas, saldo,
+  };
+}
+
+async function sendSummary(chatId, monthArg) {
+  const calc = await computeMonthTotals(monthArg);
+  if (!calc) {
+    await bot.sendMessage(chatId, 'Não entendi o mês. Exemplos: /resumo, /resumo anterior, /resumo 08/2026');
+    return;
+  }
+  const {
+    bounds: { label }, salary, billRows, entradas, acrescimos, compras, retiradas,
+    totalBills, totEntradas, totAcrescimos, totCompras, totRetiradas, saldo,
+  } = calc;
 
   const billsLines = [`📌 <b>CONTAS FIXAS</b>`];
   if (!billRows.length) billsLines.push('— nenhuma conta fixa —');
@@ -842,9 +859,18 @@ bot.onText(cmd('conta'), guarded(async (msg, match) => {
 bot.onText(cmd('salario'), guarded(async (msg, match) => {
   const chatId = msg.chat.id;
   if (!match[1] || !match[1].trim()) {
-    const { data, error } = await sb.from('settings').select('salary').eq('id', 1).single();
-    if (error) throw error;
-    await bot.sendMessage(chatId, `💼 Salário atual: <b>${brl(data.salary)}</b>\nPara alterar: /salario 2800`, html);
+    const calc = await computeMonthTotals();
+    const entradasMais = calc.totEntradas + calc.totAcrescimos;
+    const saidas = calc.totalBills + calc.totCompras + calc.totRetiradas;
+    await bot.sendMessage(chatId,
+      `💼 <b>Salário fixo:</b> ${brl(calc.salary)}\n` +
+      `📥 <b>Entradas/acréscimos (este mês):</b> + ${brl(entradasMais)}\n` +
+      `📌🛒 <b>Contas fixas + compras/retiradas:</b> − ${brl(saidas)}\n` +
+      `━━━━━━━━━━━━━━\n` +
+      `💰 <b>Saldo deste mês: ${brl(calc.saldo)}</b>\n\n` +
+      `Esse número é o mesmo do site e do /resumo — sempre calculado na hora, direto do banco.\n\n` +
+      `Para alterar o salário fixo: /salario <valor> (ex.: /salario 2800)\nDetalhes completos: /resumo`,
+      html);
     return;
   }
   const amount = parseAmount(match[1].trim());
@@ -854,7 +880,7 @@ bot.onText(cmd('salario'), guarded(async (msg, match) => {
   }
   const { error } = await sb.from('settings').update({ salary: amount, updated_at: new Date().toISOString() }).eq('id', 1);
   if (error) throw error;
-  await bot.sendMessage(chatId, `💼 Salário atualizado para <b>${brl(amount)}</b>.`, html);
+  await bot.sendMessage(chatId, `💼 Salário fixo atualizado para <b>${brl(amount)}</b>.`, html);
 }));
 
 /* ============================================================
@@ -891,6 +917,15 @@ bot.on('polling_error', (e) => {
   if (!warned409 && /409/.test(String(e.message))) {
     warned409 = true;
     console.error('⚠️  Há OUTRA cópia do bot rodando com este mesmo token (outro deploy, seu PC, outro serviço). Desligue as extras para evitar respostas duplicadas.');
+    // Avisa direto no Telegram (não só no log do servidor) — é o "conflito" que causa
+    // respostas em dobro: normalmente é um `node bot.js` esquecido rodando no PC
+    // junto com o deploy no Render/Railway, ou dois serviços de deploy ativos.
+    for (const id of ALLOWED) {
+      bot.sendMessage(id,
+        '⚠️ <b>Duas cópias do bot rodando ao mesmo tempo</b> (mesmo token) — por isso as respostas estão vindo em dobro.\n\n' +
+        'Confira: um <code>node bot.js</code> esquecido rodando no seu PC, ou dois serviços de deploy ativos (Render/Railway) com o mesmo BOT_TOKEN. Desligue a cópia extra.',
+        html).catch(() => {});
+    }
   }
 });
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
