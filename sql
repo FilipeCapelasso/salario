@@ -79,6 +79,36 @@ begin
   end;
 end $$;
 
+-- 2d) Parcelamento e vencimento das contas fixas.
+--     - start_month: mês em que a conta passou a valer (as parcelas contam a partir daqui).
+--       Contas que já existiam ganham o mês da criação; as novas usam o mês atual.
+--     - installments_total: quantas parcelas tem. Vazio = conta recorrente, sem fim
+--       (aluguel, assinatura, etc). Com número, é um parcelamento/dívida.
+--     - due_day: dia do mês em que costuma vencer (1 a 31). Só informativo.
+--     Quando as parcelas acabam, a conta some sozinha da lista de contas ativas
+--     dos meses seguintes: o site e o bot calculam isso na hora (mês atual −
+--     mês de início vs. total de parcelas), sem precisar de nenhuma tarefa
+--     agendada rodando no servidor.
+alter table fixed_bills add column if not exists start_month date;
+update fixed_bills set start_month = date_trunc('month', coalesce(created_at, now()))::date where start_month is null;
+alter table fixed_bills alter column start_month set default date_trunc('month', now())::date;
+alter table fixed_bills alter column start_month set not null;
+
+alter table fixed_bills add column if not exists installments_total int;
+alter table fixed_bills add column if not exists due_day smallint;
+
+do $$
+begin
+  begin
+    alter table fixed_bills add constraint fixed_bills_installments_positive check (installments_total is null or installments_total > 0) not valid;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter table fixed_bills add constraint fixed_bills_due_day_range check (due_day is null or (due_day between 1 and 31)) not valid;
+  exception when duplicate_object then null;
+  end;
+end $$;
+
 -- ---------------------------------------------------------------------
 -- 3) Segurança (modo pessoal: acesso liberado pela chave anon)
 --    Para exigir login no site, veja o bloco OPCIONAL no fim do arquivo.
