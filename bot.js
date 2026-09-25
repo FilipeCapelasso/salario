@@ -22,17 +22,21 @@ const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
 const TZ = process.env.TIMEZONE || 'America/Rio_Branco';
 
 // Segurança: coloque seu chat id em ALLOWED_CHAT_ID (mais de um? separe por vírgula).
-// Descubra o seu mandando /id para o bot. Vazio = qualquer pessoa pode usar o bot.
+// Descubra o seu mandando qualquer mensagem ao bot e olhando os logs do servidor. Vazio = qualquer pessoa pode usar o bot.
 const ALLOWED = (process.env.ALLOWED_CHAT_ID || '').split(',').map((s) => s.trim()).filter(Boolean);
 
 // Tipos de lançamento. "defaults" são as categorias que sempre aparecem nos botões;
 // as que você já usou antes (e que estão no banco) entram automaticamente depois delas.
+// "Compra" cobre tanto gastos quanto retiradas de dinheiro (categoria "Retirada").
 const TYPES = {
-  compra:    { label: 'Compra',    emoji: '🛒', askCategory: true,  defaults: ['Almoço', 'Mercado', 'Lanche', 'Empréstimo', 'Software'] },
-  entrada:   { label: 'Entrada',   emoji: '📥', askCategory: true,  defaults: ['Freela', 'Venda', 'Reembolso'] },
-  acrescimo: { label: 'Acréscimo', emoji: '➕', askCategory: true,  defaults: ['Bônus', 'Presente', 'Rendimento'] },
-  retirada:  { label: 'Retirada',  emoji: '💵', askCategory: false, defaults: [] },
+  compra:    { label: 'Compra',    emoji: '🛒', defaults: ['Almoço', 'Mercado', 'Lanche', 'Empréstimo', 'Software', 'Retirada'] },
+  acrescimo: { label: 'Acréscimo', emoji: '➕', defaults: ['Bônus', 'Presente', 'Rendimento'] },
 };
+
+// Tipos antigos que podem existir no banco (de antes desta simplificação),
+// só usados para não quebrar ao exibir lançamentos antigos.
+const LEGACY_TYPES = { entrada: { label: 'Entrada', emoji: '📥' }, retirada: { label: 'Retirada', emoji: '💵' } };
+const typeInfo = (type) => TYPES[type] || LEGACY_TYPES[type] || { label: cap(type), emoji: '•' };
 
 const MAX_BUTTONS = 12;              // máximo de categorias nos botões
 const PENDING_TTL = 10 * 60 * 1000;  // botões expiram em 10 min
@@ -41,7 +45,7 @@ const DUP_WINDOW_MS = 3 * 60 * 1000; // mesmo valor+categoria dentro de 3 min = 
 // Emojis por categoria (chave sem acento e minúscula). O resto usa 🏷️
 const CATEGORY_EMOJI = {
   almoco: '🍽️', jantar: '🍽️', lanche: '🍔', mercado: '🛒', emprestimo: '🤝', software: '💻',
-  freela: '💼', venda: '💰', reembolso: '↩️', bonus: '🎁', presente: '🎁', rendimento: '📈',
+  retirada: '💵', bonus: '🎁', presente: '🎁', rendimento: '📈',
   transporte: '🚌', saude: '💊', lazer: '🎮', jogos: '🎮', assinatura: '🔁',
 };
 
@@ -105,10 +109,9 @@ function billStatus(b, ymStr) {
   return { started, finished, num, diff };
 }
 function billLine(b, st) {
-  const bits = [];
-  if (b.installments_total) bits.push(st.num === b.installments_total ? 'última parcela' : `parcela ${st.num}/${b.installments_total}`);
-  if (b.due_day) bits.push(`vence dia ${b.due_day}`);
-  return `• ${esc(b.name)}: <b>${brl(b.amount)}</b>${bits.length ? ` <i>(${bits.join(', ')})</i>` : ''}`;
+  if (!b.installments_total) return `• ${esc(b.name)}: <b>${brl(b.amount)}</b>`;
+  const parc = st.num === b.installments_total ? 'última parcela' : `parcela ${st.num}/${b.installments_total}`;
+  return `• ${esc(b.name)}: <b>${brl(b.amount)}</b> <i>(${parc})</i>`;
 }
 
 const fmtDay = (iso) => {
@@ -124,7 +127,7 @@ const emojiFor = (cat) => CATEGORY_EMOJI[normKey(cat)] || '🏷️';
 const newToken = () => crypto.randomBytes(4).toString('hex');
 const sumOf = (list) => list.reduce((s, x) => s + Number(x.amount), 0);
 
-// Detecta se uma Entrada/Acréscimo parece ser o salário mensal (para avisar
+// Detecta se um Acréscimo parece ser o salário mensal (para avisar
 // que existe o campo fixo /salario, que evita lançar isso todo mês por engano).
 const looksLikeSalary = (category, description) => /salario/.test(normKey(`${category || ''} ${description || ''}`));
 
@@ -148,7 +151,8 @@ function guarded(fn) {
   return async (msg, match) => {
     const chatId = msg.chat.id;
     if (!authorized(chatId)) {
-      bot.sendMessage(chatId, '⛔ Acesso não autorizado. Mande /id para ver o seu chat id.');
+      console.log(`Acesso negado para chat id: ${chatId}`);
+      bot.sendMessage(chatId, '⛔ Acesso não autorizado.');
       return;
     }
     try {
@@ -317,9 +321,9 @@ function categoryKeyboard(token, buttons) {
 
 // Grava com proteção e responde. `reply(texto, extra)` envia nova mensagem ou edita a existente.
 async function finalize(entry, clientId, reply, { force = false, skipSalaryCheck = false } = {}) {
-  // Entrada/Acréscimo com cara de "salário" → confirma antes de gravar, porque
+  // Acréscimo com cara de "salário" → confirma antes de gravar, porque
   // provavelmente o certo é usar o campo fixo (/salario), não um lançamento avulso.
-  if (!skipSalaryCheck && (entry.type === 'entrada' || entry.type === 'acrescimo') && looksLikeSalary(entry.category, entry.description)) {
+  if (!skipSalaryCheck && entry.type === 'acrescimo' && looksLikeSalary(entry.category, entry.description)) {
     const token = newToken();
     pending.set(token, { kind: 'sal', entry, clientId, createdAt: Date.now() });
     return reply(
@@ -329,7 +333,7 @@ async function finalize(entry, clientId, reply, { force = false, skipSalaryCheck
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: '💼 Definir como salário fixo', callback_data: `sal:${token}:edit` }],
+            [{ text: '👔 Definir como salário fixo', callback_data: `sal:${token}:edit` }],
             [{ text: '✅ Não, é um lançamento avulso mesmo', callback_data: `sal:${token}:yes` }],
           ],
         },
@@ -378,12 +382,6 @@ async function handleRegister(msg, type, args) {
   const clientId = `msg:${chatId}:${msg.message_id}`; // mesma mensagem nunca grava duas vezes
   const reply = (text, extra = {}) => bot.sendMessage(chatId, text, { ...html, ...extra });
 
-  // Retirada: sem categoria, grava direto
-  if (!cfg.askCategory) {
-    await finalize({ type, amount, category: null, description: rest.join(' ') || null }, clientId, reply);
-    return;
-  }
-
   const { buttons, all } = await categoryOptions(type);
 
   // Atalho: se a 1ª palavra depois do valor já é uma categoria conhecida, grava direto
@@ -410,17 +408,16 @@ bot.on('callback_query', async (q) => {
   const answer = (opts) => bot.answerCallbackQuery(q.id, opts).catch(() => {});
   try {
     const [kind, a, b] = String(q.data || '').split(':');
-    if (!chatId || !['cat', 'dup', 'sal', 'undo', 'full'].includes(kind)) return answer();
+    if (!chatId || !['cat', 'dup', 'sal', 'undo', 'resumo'].includes(kind)) return answer();
     if (!authorized(chatId)) return answer({ text: 'Acesso não autorizado.', show_alert: true });
 
     const ref = { chat_id: chatId, message_id: q.message.message_id, parse_mode: 'HTML' };
     const edit = (text, extra = {}) => bot.editMessageText(text, { ...ref, ...extra });
 
-    /* ---- "ver resumo completo" a partir do /saldo ---- */
-    if (kind === 'full') {
-      await answer({ text: 'Abrindo resumo…' });
-      await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: q.message.message_id }).catch(() => {});
-      await sendSummary(chatId, a === '-' ? undefined : decodeURIComponent(a));
+    /* ---- "Ver resumo completo" a partir do /saldo ---- */
+    if (kind === 'resumo') {
+      await answer();
+      await sendSummary(chatId);
       return;
     }
 
@@ -440,7 +437,7 @@ bot.on('callback_query', async (q) => {
       }
       const t = rows[0];
       await answer({ text: 'Desfeito.' });
-      await edit(`🗑️ Desfeito: ${TYPES[t.type].label} de <b>${brl(t.amount)}</b>${t.category ? ' · ' + esc(cap(t.category)) : ''}`);
+      await edit(`🗑️ Desfeito: ${typeInfo(t.type).label} de <b>${brl(t.amount)}</b>${t.category ? ' · ' + esc(cap(t.category)) : ''}`);
       return;
     }
 
@@ -459,7 +456,7 @@ bot.on('callback_query', async (q) => {
         const { error } = await sb.from('settings').update({ salary: p.entry.amount, updated_at: new Date().toISOString() }).eq('id', 1);
         if (error) throw error;
         await answer({ text: 'Salário atualizado.' });
-        await edit(`💼 Salário fixo definido para <b>${brl(p.entry.amount)}</b>.\nA partir de agora ele entra sozinho todo mês — não precisa lançar de novo (nada foi registrado como ${TYPES[p.entry.type].label.toLowerCase()}).`);
+        await edit(`👔 Salário fixo definido para <b>${brl(p.entry.amount)}</b>.\nA partir de agora ele entra sozinho todo mês — não precisa lançar de novo (nada foi registrado como ${TYPES[p.entry.type].label.toLowerCase()}).`);
         return;
       }
       await answer({ text: 'Registrando…' });
@@ -492,7 +489,7 @@ bot.on('callback_query', async (q) => {
     if (b === 'new') {
       awaitingCustom.set(chatId, a);
       await answer();
-      await edit(`✏️ ${TYPES[p.type].label} de <b>${brl(p.amount)}</b>\n\nDigite o nome da nova categoria (ou /cancelar):`);
+      await edit(`✏️ ${TYPES[p.type].label} de <b>${brl(p.amount)}</b>\n\nDigite o nome da nova categoria, ou toque em ❌ Cancelar acima:`);
       return;
     }
 
@@ -560,42 +557,21 @@ bot.on('message', async (msg) => {
 const HELP = `👋 <b>Comandos</b>
 
 <b>Registrar</b>
-/compra 45,90 — você escolhe a categoria nos botões
-/entrada 300 — idem
-/acrescimo 150 — idem
-/retirada 100 caixa eletrônico
-
-💡 <b>Atalhos</b>
-• Já sabe a categoria? /compra 45,90 mercado feira
-• Mande só <code>45,90 mercado</code> e vira uma compra
-• Errou? Toque em ↩️ Desfazer na confirmação, ou use /desfazer
+<code>/compra [valor] [descrição]</code> — registra uma compra ou retirada
+<code>/acrescimo [valor] [descrição]</code> — registra um valor a mais
 
 <b>Consultar</b>
-/saldo — saldo rápido do mês, com barrinha (ou /saldo anterior, /saldo 08/2026)
-/resumo — resumo completo, linha a linha (ou /resumo anterior, /resumo 08/2026)
-/extrato — últimas 10 movimentações
-/contas — contas fixas
-/salario — ver ou alterar o salário <i>(fixo: entra todo mês sozinho — não é uma Entrada avulsa)</i>
+<code>/saldo</code> — saldo rápido do mês com barrinha
+<code>/resumo</code> — resumo completo linha a linha
 
 <b>Configurar</b>
-/conta Netflix 39,90 — cria ou atualiza uma conta fixa
-/conta Celular 418 12x — parcelada em 12x (some sozinha ao quitar)
-/conta Aluguel 900 dia5 — com dia de vencimento
-/salario 2800 — altera o salário
+<code>/conta [nome] [valor]</code> — cria ou atualiza uma conta fixa
+<code>/conta Celular 418 12x</code> — parcelada em 12x (some sozinha ao quitar)
+<code>/salario [valor]</code> — altera o salário fixo
 
-/cancelar — cancela uma digitação em andamento
-/id — mostra o seu chat id`;
+💡 Mande só um número (ex.: <code>45,90</code>) que já vira uma compra. Errou? Toque em ↩️ Desfazer na confirmação.`;
 
 bot.onText(/^\/(start|ajuda|help)(?:@\w+)?\s*$/, guarded((msg) => bot.sendMessage(msg.chat.id, HELP, html)));
-
-bot.onText(/^\/id(?:@\w+)?\s*$/, (msg) => {
-  bot.sendMessage(msg.chat.id, `Seu chat id: <code>${msg.chat.id}</code>`, html);
-});
-
-bot.onText(/^\/cancelar(?:@\w+)?\s*$/, guarded(async (msg) => {
-  awaitingCustom.delete(msg.chat.id);
-  await bot.sendMessage(msg.chat.id, '❌ Cancelado.');
-}));
 
 for (const type of Object.keys(TYPES)) {
   bot.onText(cmd(type), guarded((msg, match) => {
@@ -616,7 +592,7 @@ bot.onText(cmd('desfazer'), guarded(async (msg) => {
     await bot.sendMessage(msg.chat.id, 'Não há nenhuma movimentação para desfazer.');
     return;
   }
-  const cfg = TYPES[t.type];
+  const cfg = typeInfo(t.type);
   const extra = [t.category ? cap(t.category) : null, t.description].filter(Boolean).map(esc).join(' — ');
   await bot.sendMessage(
     msg.chat.id,
@@ -671,8 +647,8 @@ function txSection(title, emoji, list, withCategories) {
 }
 
 // Calcula os totais do mês (salário fixo + entradas/acréscimos − contas fixas −
-// compras/retiradas). Usada tanto pelo /resumo quanto pelo /salario, pra garantir
-// que os dois SEMPRE mostrem o mesmo número — sem risco de "conflito" entre eles.
+// compras). Usada pelo /resumo e pelo /saldo, pra garantir que os dois SEMPRE
+// mostrem o mesmo número — sem risco de "conflito" entre eles.
 async function computeMonthTotals(monthArg) {
   const bounds = monthBounds(monthArg);
   if (!bounds) return null;
@@ -691,67 +667,20 @@ async function computeMonthTotals(monthArg) {
   const billRows = (b.data || [])
     .map((x) => ({ b: x, st: billStatus(x, ym) }))
     .filter((r) => r.b.active && r.st.started && !r.st.finished)
-    .sort((x, y) => (x.b.due_day ?? 99) - (y.b.due_day ?? 99) || x.b.name.localeCompare(y.b.name, 'pt-BR'));
+    .sort((x, y) => x.b.name.localeCompare(y.b.name, 'pt-BR'));
   const bills = billRows.map((r) => r.b);
   const txs = t.data || [];
-  const by = (type) => txs.filter((x) => x.type === type);
-  const entradas = by('entrada'), acrescimos = by('acrescimo'), compras = by('compra'), retiradas = by('retirada');
+  // "retirada" e "entrada" são tipos antigos (de antes do /compra e /acrescimo
+  // absorverem tudo); lançamentos antigos com esses tipos ainda entram na conta.
+  const compras = txs.filter((x) => x.type === 'compra' || x.type === 'retirada');
+  const acrescimos = txs.filter((x) => x.type === 'acrescimo' || x.type === 'entrada');
 
   const totalBills = sumOf(bills);
-  const totEntradas = sumOf(entradas), totAcrescimos = sumOf(acrescimos);
-  const totCompras = sumOf(compras), totRetiradas = sumOf(retiradas);
-  const saldo = salary + totEntradas + totAcrescimos - totCompras - totRetiradas - totalBills;
+  const totAcrescimos = sumOf(acrescimos);
+  const totCompras = sumOf(compras);
+  const saldo = salary + totAcrescimos - totCompras - totalBills;
 
-  return {
-    bounds, salary, billRows, bills, totalBills, entradas, acrescimos, compras, retiradas,
-    totEntradas, totAcrescimos, totCompras, totRetiradas, saldo,
-  };
-}
-
-/* ---------- saldo: UM único texto, usado por /saldo, /resumo e /salario ----------
-   Antes, cada comando montava esse texto na mão, separadamente — bastava editar um
-   e esquecer o outro para o saldo aparecer diferente dependendo de onde você olhava
-   (site, /resumo, /salario). Agora todos passam pelos MESMOS números, vindos de
-   computeMonthTotals(), e pelo MESMO formatador abaixo: muda em um lugar, muda em
-   todos ao mesmo tempo — e o valor é sempre idêntico ao "Sobra este mês" do site,
-   porque a fórmula (salário + entradas + acréscimos − contas fixas − compras −
-   retiradas) é a mesma nos dois lados. */
-const BAR_SLOTS = 14;
-
-function saldoBar(calc) {
-  const { salary, totEntradas, totAcrescimos, totalBills, totCompras, totRetiradas, saldo } = calc;
-  const renda = salary + totEntradas + totAcrescimos;
-  const gastos = totalBills + totCompras + totRetiradas;
-  const base = Math.max(renda, gastos) || 1;
-  const livre = Math.max(saldo, 0);
-  const filled = Math.max(0, Math.min(BAR_SLOTS, Math.round((livre / base) * BAR_SLOTS)));
-  return (saldo >= 0 ? '🟩' : '🟥').repeat(filled) + '⬛'.repeat(BAR_SLOTS - filled);
-}
-
-// compact:true = usada dentro do /salario (sem barra, sem repetir o rodapé)
-function saldoText(calc, { compact = false } = {}) {
-  const { bounds: { label }, salary, totEntradas, totAcrescimos, totalBills, totCompras, totRetiradas, saldo } = calc;
-  const renda = salary + totEntradas + totAcrescimos;
-  const pctLivre = renda > 0 ? Math.round((Math.max(saldo, 0) / renda) * 100) : 0;
-
-  const lines = [
-    `💰 <b>SALDO · ${label}</b>`,
-    ``,
-    `💼 Salário: <b>${brl(salary)}</b>`,
-    `📥 Entradas + acréscimos: <b>+ ${brl(totEntradas + totAcrescimos)}</b>`,
-    `📌 Contas fixas: <b>− ${brl(totalBills)}</b>`,
-    `🛒 Compras + retiradas: <b>− ${brl(totCompras + totRetiradas)}</b>`,
-    `━━━━━━━━━━━━━━`,
-    saldo >= 0 ? `✅ <b>Saldo: ${brl(saldo)}</b>` : `⚠️ <b>Saldo: ${brl(saldo)}</b> (negativo)`,
-  ];
-  if (!compact) {
-    lines.push('', saldoBar(calc));
-    lines.push(saldo >= 0
-      ? `<i>${pctLivre}% da renda do mês ainda está livre.</i>`
-      : `<i>Você já gastou ${brl(-saldo)} a mais do que entrou este mês.</i>`);
-    lines.push('', '<i>Mesmo número do site — calculado na hora, direto do banco. Linha a linha: /resumo</i>');
-  }
-  return lines.join('\n');
+  return { bounds, salary, billRows, bills, totalBills, acrescimos, compras, totAcrescimos, totCompras, saldo };
 }
 
 async function sendSummary(chatId, monthArg) {
@@ -761,8 +690,8 @@ async function sendSummary(chatId, monthArg) {
     return;
   }
   const {
-    bounds: { label }, salary, billRows, entradas, acrescimos, compras, retiradas,
-    totalBills, totEntradas, totAcrescimos, totCompras, totRetiradas, saldo,
+    bounds: { label }, salary, billRows, acrescimos, compras,
+    totalBills, totAcrescimos, totCompras, saldo,
   } = calc;
 
   const billsLines = [`📌 <b>CONTAS FIXAS</b>`];
@@ -772,12 +701,10 @@ async function sendSummary(chatId, monthArg) {
 
   const closing = [
     `🧮 <b>FECHAMENTO</b>`,
-    `Salário: + ${brl(salary)}`,
-    `Entradas: + ${brl(totEntradas)}`,
-    `Acréscimos: + ${brl(totAcrescimos)}`,
-    `Contas fixas: − ${brl(totalBills)}`,
-    `Compras: − ${brl(totCompras)}`,
-    `Retiradas: − ${brl(totRetiradas)}`,
+    `👔 Salário: + ${brl(salary)}`,
+    `➕ Acréscimos: + ${brl(totAcrescimos)}`,
+    `📌 Contas fixas: − ${brl(totalBills)}`,
+    `🛒 Compras: − ${brl(totCompras)}`,
     `━━━━━━━━━━━━━━`,
     `💰 <b>Restante: ${brl(saldo)}</b>`,
   ];
@@ -785,12 +712,10 @@ async function sendSummary(chatId, monthArg) {
 
   await sendBlocks(chatId, [
     `📊 <b>RESUMO DE ${label}</b>`,
-    `💼 <b>SALÁRIO</b> <i>(fixo, todo mês)</i>\n<b>${brl(salary)}</b>`,
+    `👔 <b>SALÁRIO</b> <i>(fixo, todo mês)</i>\n<b>${brl(salary)}</b>`,
     billsLines.join('\n'),
-    txSection('ENTRADAS', '📥', entradas, false),
     txSection('ACRÉSCIMOS', '➕', acrescimos, false),
     txSection('COMPRAS', '🛒', compras, true),
-    txSection('RETIRADAS', '💵', retiradas, false),
     closing.join('\n'),
   ]);
 }
@@ -799,39 +724,42 @@ bot.onText(cmd('resumo'), guarded((msg, match) => sendSummary(msg.chat.id, match
 
 /* ---------- /saldo ---------- */
 
-bot.onText(cmd('saldo'), guarded(async (msg, match) => {
-  const chatId = msg.chat.id;
-  const calc = await computeMonthTotals(match[1]);
+function progressBar(pctSpent) {
+  const clamped = Math.max(0, Math.min(100, pctSpent));
+  const filled = Math.round(clamped / 10);
+  return '▰'.repeat(filled) + '▱'.repeat(10 - filled);
+}
+
+async function sendSaldo(chatId) {
+  const calc = await computeMonthTotals();
   if (!calc) {
-    await bot.sendMessage(chatId, 'Não entendi o mês. Exemplos: /saldo, /saldo anterior, /saldo 08/2026');
+    await bot.sendMessage(chatId, 'Não consegui calcular o saldo agora.');
     return;
   }
-  await bot.sendMessage(chatId, saldoText(calc), {
+  const { bounds: { label }, salary, totAcrescimos, totCompras, totalBills, saldo } = calc;
+  const income = salary + totAcrescimos;
+  const saidas = totalBills + totCompras;
+  const pctGasto = income > 0 ? (saidas / income) * 100 : (saidas > 0 ? 100 : 0);
+  const pctLivre = Math.round(Math.max(0, 100 - pctGasto));
+
+  let text =
+    `💰 <b>SALDO DE ${label}</b>\n\n` +
+    `👔 Salário: ${brl(salary)}\n` +
+    `➕ Acréscimos: + ${brl(totAcrescimos)}\n` +
+    `📌🛒 Contas + compras: − ${brl(saidas)}\n` +
+    `━━━━━━━━━━━━━━\n` +
+    `💰 <b>Saldo: ${brl(saldo)}</b>\n\n` +
+    `${progressBar(pctGasto)} ${Math.round(Math.min(100, pctGasto))}% usado\n` +
+    `🚀 <b>${pctLivre}% de renda livre</b>`;
+  if (saldo < 0) text += '\n\n⚠️ Você está no negativo neste mês.';
+
+  await bot.sendMessage(chatId, text, {
     ...html,
-    reply_markup: {
-      inline_keyboard: [[{ text: '📊 Ver resumo completo', callback_data: `full:${match[1] ? encodeURIComponent(match[1].trim()) : '-'}` }]],
-    },
+    reply_markup: { inline_keyboard: [[{ text: '📊 Ver resumo completo', callback_data: 'resumo:show' }]] },
   });
-}));
+}
 
-/* ---------- /extrato ---------- */
-
-bot.onText(cmd('extrato'), guarded(async (msg) => {
-  const { data: txs, error } = await sb.from('transactions').select('*')
-    .order('created_at', { ascending: false }).limit(10);
-  if (error) throw error;
-  if (!txs || !txs.length) {
-    await bot.sendMessage(msg.chat.id, 'Nenhuma movimentação ainda.');
-    return;
-  }
-  const lines = txs.map((t) => {
-    const cfg = TYPES[t.type] || { emoji: '•', label: t.type };
-    const sign = t.type === 'entrada' || t.type === 'acrescimo' ? '+' : '−';
-    const extra = [t.category ? cap(t.category) : null, t.description].filter(Boolean).map(esc).join(' — ');
-    return `${fmtDay(t.occurred_on)} · ${cfg.emoji} ${cfg.label} · <b>${sign} ${brl(t.amount)}</b>${extra ? '\n      ' + extra : ''}`;
-  });
-  await sendBlocks(msg.chat.id, ['🧾 <b>ÚLTIMAS MOVIMENTAÇÕES</b>\n' + lines.join('\n')]);
-}));
+bot.onText(cmd('saldo'), guarded((msg) => sendSaldo(msg.chat.id)));
 
 /* ---------- /contas e /conta ---------- */
 
@@ -845,10 +773,10 @@ bot.onText(cmd('contas'), guarded(async (msg) => {
   const upcoming = rows.filter((r) => r.b.active && !r.st.started);
   if (!active.length && !upcoming.length) {
     await bot.sendMessage(msg.chat.id,
-      'Nenhuma conta fixa ativa.\nUse /conta Nome 50,00 para criar (ou "12x" para parcelar, "dia10" para vencimento).');
+      'Nenhuma conta fixa ativa.\nUse /conta Nome 50,00 para criar (ou "12x" para parcelar).');
     return;
   }
-  active.sort((a, z) => (a.b.due_day ?? 99) - (z.b.due_day ?? 99) || a.b.name.localeCompare(z.b.name, 'pt-BR'));
+  active.sort((a, z) => a.b.name.localeCompare(z.b.name, 'pt-BR'));
   let text = `📌 <b>CONTAS FIXAS</b>\n${active.map((r) => billLine(r.b, r.st)).join('\n') || '— nenhuma conta ativa —'}\n\nTotal: <b>${brl(sumOf(active.map((r) => r.b)))}</b>`;
   if (upcoming.length) {
     text += `\n\n🔜 <i>Começam em breve:</i>\n` +
@@ -858,30 +786,24 @@ bot.onText(cmd('contas'), guarded(async (msg) => {
 }));
 
 // Cria a conta OU atualiza o valor se o nome já existir (nunca duplica).
-// Aceita parcelas ("12x") e dia de vencimento ("dia10") depois do valor, em qualquer ordem.
+// Aceita parcelas ("12x") depois do valor.
 bot.onText(cmd('conta'), guarded(async (msg, match) => {
   const chatId = msg.chat.id;
   const m = (match[1] || '').trim().match(/^(.+?)\s+(?:R\$\s*)?([\d.,]+)(?:\s+([\s\S]*))?$/i);
   const amount = m ? parseAmount(m[2]) : NaN;
   if (!m || !validAmount(amount)) {
     await bot.sendMessage(chatId,
-      'Uso: /conta Nome valor [Nx] [diaD]\n\n' +
-      'Exemplos:\n• /conta Plano de crédito 30\n• /conta Celular 418 12x\n• /conta Netflix 39,90 dia10\n• /conta TV 200 10x dia5\n\n' +
+      'Uso: /conta Nome valor [Nx]\n\n' +
+      'Exemplos:\n• /conta Netflix 39,90\n• /conta Celular 418 12x\n\n' +
       'Se a conta já existir, você atualiza o valor (ou reinicia um parcelamento, se a anterior já tiver sido quitada).', html);
     return;
   }
   const name = m[1].trim().replace(/\s+/g, ' ').slice(0, 60);
   const extra = m[3] || '';
   const mi = extra.match(/(\d{1,3})\s*x\b/i);
-  const md = extra.match(/dia\s*(\d{1,2})\b/i);
   const installments_total = mi ? parseInt(mi[1], 10) : null;
-  const due_day = md ? parseInt(md[1], 10) : null;
   if (installments_total != null && (installments_total < 1 || installments_total > 600)) {
     await bot.sendMessage(chatId, 'Número de parcelas inválido.');
-    return;
-  }
-  if (due_day != null && (due_day < 1 || due_day > 31)) {
-    await bot.sendMessage(chatId, 'Dia de vencimento inválido (use de 1 a 31).');
     return;
   }
 
@@ -894,7 +816,7 @@ bot.onText(cmd('conta'), guarded(async (msg, match) => {
     const st = billStatus(found, ym);
     if (st.finished) {
       const { error: e2 } = await sb.from('fixed_bills').update({
-        amount, active: true, start_month: ym + '-01', installments_total, due_day,
+        amount, active: true, start_month: ym + '-01', installments_total,
       }).eq('id', found.id);
       if (e2) throw e2;
       await bot.sendMessage(chatId,
@@ -904,17 +826,16 @@ bot.onText(cmd('conta'), guarded(async (msg, match) => {
     }
     const patch = { amount, active: true };
     if (mi) patch.installments_total = installments_total;
-    if (md) patch.due_day = due_day;
     const { error: e2 } = await sb.from('fixed_bills').update(patch).eq('id', found.id);
     if (e2) throw e2;
-    const same = Number(found.amount) === amount && found.active && !mi && !md;
+    const same = Number(found.amount) === amount && found.active && !mi;
     await bot.sendMessage(chatId, same
       ? `ℹ️ <b>${esc(found.name)}</b> já existe com esse valor (${brl(amount)}). Nada mudou.`
       : `🔄 <b>${esc(found.name)}</b> atualizada: ${brl(found.amount)} → <b>${brl(amount)}</b>`, html);
     return;
   }
 
-  const { error: e3 } = await sb.from('fixed_bills').insert({ name, amount, start_month: ym + '-01', installments_total, due_day });
+  const { error: e3 } = await sb.from('fixed_bills').insert({ name, amount, start_month: ym + '-01', installments_total });
   if (e3) {
     if (e3.code === '23505') {
       await bot.sendMessage(chatId, 'ℹ️ Essa conta já existe. Mande o comando de novo para atualizar o valor.');
@@ -922,7 +843,7 @@ bot.onText(cmd('conta'), guarded(async (msg, match) => {
     }
     throw e3;
   }
-  const extra2 = [installments_total ? `${installments_total}x` : null, due_day ? `vence dia ${due_day}` : null].filter(Boolean).join(', ');
+  const extra2 = installments_total ? `${installments_total}x` : '';
   await bot.sendMessage(chatId, `📌 Conta fixa <b>${esc(name)}</b> criada: <b>${brl(amount)}</b>/mês${extra2 ? ' · ' + extra2 : ''}.`, html);
 }));
 
@@ -931,15 +852,11 @@ bot.onText(cmd('conta'), guarded(async (msg, match) => {
 bot.onText(cmd('salario'), guarded(async (msg, match) => {
   const chatId = msg.chat.id;
   if (!match[1] || !match[1].trim()) {
-    const calc = await computeMonthTotals();
-    if (!calc) {
-      await bot.sendMessage(chatId, 'Não consegui calcular o saldo do mês atual.');
-      return;
-    }
+    const { data, error } = await sb.from('settings').select('salary').eq('id', 1).single();
+    if (error) throw error;
     await bot.sendMessage(chatId,
-      saldoText(calc, { compact: true }) +
-      `\n\nPara alterar o salário fixo: /salario <valor> (ex.: /salario 2800)\n` +
-      `Saldo com barrinha: /saldo · Linha a linha: /resumo`,
+      `👔 <b>Salário fixo:</b> ${brl(data ? data.salary : 0)}\n\n` +
+      `Para alterar: <code>/salario 2800</code>\nSaldo do mês: /saldo`,
       html);
     return;
   }
@@ -950,7 +867,7 @@ bot.onText(cmd('salario'), guarded(async (msg, match) => {
   }
   const { error } = await sb.from('settings').update({ salary: amount, updated_at: new Date().toISOString() }).eq('id', 1);
   if (error) throw error;
-  await bot.sendMessage(chatId, `💼 Salário fixo atualizado para <b>${brl(amount)}</b>.`, html);
+  await bot.sendMessage(chatId, `👔 Salário fixo atualizado para <b>${brl(amount)}</b>.`, html);
 }));
 
 /* ============================================================
@@ -958,15 +875,10 @@ bot.onText(cmd('salario'), guarded(async (msg, match) => {
    ============================================================ */
 
 bot.setMyCommands([
-  { command: 'compra', description: 'Registrar compra (escolhe a categoria)' },
-  { command: 'entrada', description: 'Registrar entrada' },
-  { command: 'acrescimo', description: 'Registrar acréscimo' },
-  { command: 'retirada', description: 'Registrar retirada' },
-  { command: 'desfazer', description: 'Excluir a última movimentação' },
-  { command: 'saldo', description: 'Saldo rápido do mês (com barrinha)' },
-  { command: 'resumo', description: 'Resumo completo do mês, linha a linha' },
-  { command: 'extrato', description: 'Últimas 10 movimentações' },
-  { command: 'contas', description: 'Contas fixas' },
+  { command: 'compra', description: 'Registrar compra ou retirada' },
+  { command: 'acrescimo', description: 'Registrar um valor a mais' },
+  { command: 'saldo', description: 'Saldo rápido do mês' },
+  { command: 'resumo', description: 'Resumo completo do mês' },
   { command: 'conta', description: 'Criar/atualizar conta fixa' },
   { command: 'salario', description: 'Ver ou alterar o salário' },
   { command: 'ajuda', description: 'Lista de comandos' },
@@ -1015,6 +927,7 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
 if (ALLOWED.length === 0) {
-  console.warn('⚠️  ALLOWED_CHAT_ID não definido: qualquer pessoa que achar o bot pode usá-lo. Mande /id ao bot e configure.');
+  console.warn('⚠️  ALLOWED_CHAT_ID não definido: qualquer pessoa que achar o bot pode usá-lo. Mande qualquer mensagem ao bot, veja o chat id nos logs e configure ALLOWED_CHAT_ID.');
+  bot.on('message', (msg) => console.log(`Chat id recebido: ${msg.chat.id}`));
 }
 console.log('Bot rodando (polling)...');
