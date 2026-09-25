@@ -410,11 +410,19 @@ bot.on('callback_query', async (q) => {
   const answer = (opts) => bot.answerCallbackQuery(q.id, opts).catch(() => {});
   try {
     const [kind, a, b] = String(q.data || '').split(':');
-    if (!chatId || !['cat', 'dup', 'sal', 'undo'].includes(kind)) return answer();
+    if (!chatId || !['cat', 'dup', 'sal', 'undo', 'full'].includes(kind)) return answer();
     if (!authorized(chatId)) return answer({ text: 'Acesso não autorizado.', show_alert: true });
 
     const ref = { chat_id: chatId, message_id: q.message.message_id, parse_mode: 'HTML' };
     const edit = (text, extra = {}) => bot.editMessageText(text, { ...ref, ...extra });
+
+    /* ---- "ver resumo completo" a partir do /saldo ---- */
+    if (kind === 'full') {
+      await answer({ text: 'Abrindo resumo…' });
+      await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: q.message.message_id }).catch(() => {});
+      await sendSummary(chatId, a === '-' ? undefined : decodeURIComponent(a));
+      return;
+    }
 
     /* ---- desfazer ---- */
     if (kind === 'undo') {
@@ -563,7 +571,8 @@ const HELP = `👋 <b>Comandos</b>
 • Errou? Toque em ↩️ Desfazer na confirmação, ou use /desfazer
 
 <b>Consultar</b>
-/resumo — resumo do mês (ou /resumo anterior, /resumo 08/2026)
+/saldo — saldo rápido do mês, com barrinha (ou /saldo anterior, /saldo 08/2026)
+/resumo — resumo completo, linha a linha (ou /resumo anterior, /resumo 08/2026)
 /extrato — últimas 10 movimentações
 /contas — contas fixas
 /salario — ver ou alterar o salário <i>(fixo: entra todo mês sozinho — não é uma Entrada avulsa)</i>
@@ -699,6 +708,52 @@ async function computeMonthTotals(monthArg) {
   };
 }
 
+/* ---------- saldo: UM único texto, usado por /saldo, /resumo e /salario ----------
+   Antes, cada comando montava esse texto na mão, separadamente — bastava editar um
+   e esquecer o outro para o saldo aparecer diferente dependendo de onde você olhava
+   (site, /resumo, /salario). Agora todos passam pelos MESMOS números, vindos de
+   computeMonthTotals(), e pelo MESMO formatador abaixo: muda em um lugar, muda em
+   todos ao mesmo tempo — e o valor é sempre idêntico ao "Sobra este mês" do site,
+   porque a fórmula (salário + entradas + acréscimos − contas fixas − compras −
+   retiradas) é a mesma nos dois lados. */
+const BAR_SLOTS = 14;
+
+function saldoBar(calc) {
+  const { salary, totEntradas, totAcrescimos, totalBills, totCompras, totRetiradas, saldo } = calc;
+  const renda = salary + totEntradas + totAcrescimos;
+  const gastos = totalBills + totCompras + totRetiradas;
+  const base = Math.max(renda, gastos) || 1;
+  const livre = Math.max(saldo, 0);
+  const filled = Math.max(0, Math.min(BAR_SLOTS, Math.round((livre / base) * BAR_SLOTS)));
+  return (saldo >= 0 ? '🟩' : '🟥').repeat(filled) + '⬛'.repeat(BAR_SLOTS - filled);
+}
+
+// compact:true = usada dentro do /salario (sem barra, sem repetir o rodapé)
+function saldoText(calc, { compact = false } = {}) {
+  const { bounds: { label }, salary, totEntradas, totAcrescimos, totalBills, totCompras, totRetiradas, saldo } = calc;
+  const renda = salary + totEntradas + totAcrescimos;
+  const pctLivre = renda > 0 ? Math.round((Math.max(saldo, 0) / renda) * 100) : 0;
+
+  const lines = [
+    `💰 <b>SALDO · ${label}</b>`,
+    ``,
+    `💼 Salário: <b>${brl(salary)}</b>`,
+    `📥 Entradas + acréscimos: <b>+ ${brl(totEntradas + totAcrescimos)}</b>`,
+    `📌 Contas fixas: <b>− ${brl(totalBills)}</b>`,
+    `🛒 Compras + retiradas: <b>− ${brl(totCompras + totRetiradas)}</b>`,
+    `━━━━━━━━━━━━━━`,
+    saldo >= 0 ? `✅ <b>Saldo: ${brl(saldo)}</b>` : `⚠️ <b>Saldo: ${brl(saldo)}</b> (negativo)`,
+  ];
+  if (!compact) {
+    lines.push('', saldoBar(calc));
+    lines.push(saldo >= 0
+      ? `<i>${pctLivre}% da renda do mês ainda está livre.</i>`
+      : `<i>Você já gastou ${brl(-saldo)} a mais do que entrou este mês.</i>`);
+    lines.push('', '<i>Mesmo número do site — calculado na hora, direto do banco. Linha a linha: /resumo</i>');
+  }
+  return lines.join('\n');
+}
+
 async function sendSummary(chatId, monthArg) {
   const calc = await computeMonthTotals(monthArg);
   if (!calc) {
@@ -740,7 +795,24 @@ async function sendSummary(chatId, monthArg) {
   ]);
 }
 
-bot.onText(cmd('resumo|saldo'), guarded((msg, match) => sendSummary(msg.chat.id, match[1])));
+bot.onText(cmd('resumo'), guarded((msg, match) => sendSummary(msg.chat.id, match[1])));
+
+/* ---------- /saldo ---------- */
+
+bot.onText(cmd('saldo'), guarded(async (msg, match) => {
+  const chatId = msg.chat.id;
+  const calc = await computeMonthTotals(match[1]);
+  if (!calc) {
+    await bot.sendMessage(chatId, 'Não entendi o mês. Exemplos: /saldo, /saldo anterior, /saldo 08/2026');
+    return;
+  }
+  await bot.sendMessage(chatId, saldoText(calc), {
+    ...html,
+    reply_markup: {
+      inline_keyboard: [[{ text: '📊 Ver resumo completo', callback_data: `full:${match[1] ? encodeURIComponent(match[1].trim()) : '-'}` }]],
+    },
+  });
+}));
 
 /* ---------- /extrato ---------- */
 
@@ -860,16 +932,14 @@ bot.onText(cmd('salario'), guarded(async (msg, match) => {
   const chatId = msg.chat.id;
   if (!match[1] || !match[1].trim()) {
     const calc = await computeMonthTotals();
-    const entradasMais = calc.totEntradas + calc.totAcrescimos;
-    const saidas = calc.totalBills + calc.totCompras + calc.totRetiradas;
+    if (!calc) {
+      await bot.sendMessage(chatId, 'Não consegui calcular o saldo do mês atual.');
+      return;
+    }
     await bot.sendMessage(chatId,
-      `💼 <b>Salário fixo:</b> ${brl(calc.salary)}\n` +
-      `📥 <b>Entradas/acréscimos (este mês):</b> + ${brl(entradasMais)}\n` +
-      `📌🛒 <b>Contas fixas + compras/retiradas:</b> − ${brl(saidas)}\n` +
-      `━━━━━━━━━━━━━━\n` +
-      `💰 <b>Saldo deste mês: ${brl(calc.saldo)}</b>\n\n` +
-      `Esse número é o mesmo do site e do /resumo — sempre calculado na hora, direto do banco.\n\n` +
-      `Para alterar o salário fixo: /salario <valor> (ex.: /salario 2800)\nDetalhes completos: /resumo`,
+      saldoText(calc, { compact: true }) +
+      `\n\nPara alterar o salário fixo: /salario <valor> (ex.: /salario 2800)\n` +
+      `Saldo com barrinha: /saldo · Linha a linha: /resumo`,
       html);
     return;
   }
@@ -893,7 +963,8 @@ bot.setMyCommands([
   { command: 'acrescimo', description: 'Registrar acréscimo' },
   { command: 'retirada', description: 'Registrar retirada' },
   { command: 'desfazer', description: 'Excluir a última movimentação' },
-  { command: 'resumo', description: 'Resumo completo do mês' },
+  { command: 'saldo', description: 'Saldo rápido do mês (com barrinha)' },
+  { command: 'resumo', description: 'Resumo completo do mês, linha a linha' },
   { command: 'extrato', description: 'Últimas 10 movimentações' },
   { command: 'contas', description: 'Contas fixas' },
   { command: 'conta', description: 'Criar/atualizar conta fixa' },
