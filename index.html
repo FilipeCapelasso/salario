@@ -1,1054 +1,914 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0D1020">
-<title>Meu Financeiro</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E💰%3C/text%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=Manrope:wght@500;600;700;800&family=Unbounded:wght@600;700;800&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<style>
-:root{
-  --bg:#08080d;--panel:#15161f;--panel2:#1d1f2c;--line:#2b2d3d;--linefaint:#22232f;
-  --ink:#f2f0e7;--mute:#8b8ba3;--muted2:#5c5d72;
-  --pos:#34d399;--neg:#fb6f73;--warn:#ffc24b;--accent:#e7b93f;--accent-ink:#161104;--accent-shadow:#9c7a22;
-  --violet:var(--accent);--coral:var(--neg);--amber:var(--warn);--mint:var(--pos);
-  --radius:20px;color-scheme:dark
+require('dotenv').config();
+const crypto = require('crypto');
+const http = require('http');
+const TelegramBot = require('node-telegram-bot-api');
+const { createClient } = require('@supabase/supabase-js');
+
+if (!process.env.BOT_TOKEN || !process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+  console.error('Faltam variáveis de ambiente. Confira o .env (BOT_TOKEN, SUPABASE_URL, SUPABASE_KEY).');
+  process.exit(1);
 }
-*{box-sizing:border-box}
-[hidden]{display:none!important}
-html{background:var(--bg)}
-body{margin:0;background:var(--bg);color:var(--ink);font:500 15px/1.5 Manrope,system-ui,sans-serif;font-variant-numeric:tabular-nums;padding:20px 16px 88px;position:relative;overflow-x:hidden}
-.wrap{max-width:1080px;margin:0 auto;position:relative;z-index:1}
-h1,h2,h3{font-family:Unbounded,sans-serif}
-.big,.num,.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
-button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
-button:disabled{cursor:progress;opacity:.55}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-input,select{font:inherit;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:11px 12px;width:100%;min-width:0;transition:border-color .15s}
-input:focus-visible,select:focus-visible{border-color:var(--accent)}
-select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--mute) 50%),linear-gradient(135deg,var(--mute) 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px;background-repeat:no-repeat;padding-right:34px}
-input::placeholder{color:var(--muted2)}
-label{display:block;font-size:.8rem;color:var(--mute);margin:0 0 6px;font-weight:600}
-.pos{color:var(--pos)}.neg{color:var(--neg)}
-.violet{background:var(--accent)}.coral{background:var(--neg)}.amber{background:var(--warn)}.mint{background:var(--pos)}
 
-/* ---------- luz ambiente (decorativo, atrás de tudo) ---------- */
-.glow{position:fixed;width:62vmax;height:62vmax;border-radius:50%;filter:blur(100px);pointer-events:none;z-index:0;opacity:.14;will-change:transform}
-.glow.g1{background:var(--accent);top:-24vmax;left:-18vmax;animation:drift 24s ease-in-out infinite alternate}
-.glow.g2{background:var(--pos);bottom:-26vmax;right:-20vmax;animation:drift 29s ease-in-out infinite alternate-reverse}
-@keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(4vmax,3vmax) scale(1.1)}}
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
-/* ---------- cabeçalho ---------- */
-.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:12px}
-.brand .mark{width:38px;height:38px;border-radius:11px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font:700 1.05rem Unbounded;flex:none}
-.brand b{font:700 1.02rem Unbounded;display:block;letter-spacing:-.01em}
-.brand small{color:var(--mute);font-size:.76rem}
-.months{display:flex;align-items:center;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px;perspective:500px}
-.months button{width:34px;height:34px;border-radius:50%;font-size:1.15rem;color:var(--mute);transition:background .15s,color .15s}
-.months button:hover{background:var(--panel2);color:var(--ink)}
-.months .now{width:auto;padding:0 12px;font-size:.76rem;font-weight:700;color:var(--accent)}
-.months .mbtn{min-width:148px;text-align:center;font-weight:600;text-transform:capitalize;background:none;border:0;color:inherit;font:600 .92rem/1 'IBM Plex Mono',monospace;padding:8px 10px;border-radius:10px;transform-style:preserve-3d}
-.months .mbtn:hover{background:var(--panel2)}
-.months .mbtn.flip{animation:flipIn .32s cubic-bezier(.2,.8,.2,1)}
-@keyframes flipIn{from{transform:rotateX(85deg);opacity:.2}to{transform:rotateX(0);opacity:1}}
-.sync{display:flex;align-items:center;gap:8px;font-size:.78rem;color:var(--mute)}
-.sync i{width:8px;height:8px;border-radius:50%;background:var(--warn);position:relative;flex:none}
-.sync i.on{background:var(--pos)}
-.sync i.on::after{content:'';position:absolute;inset:-5px;border-radius:50%;border:1px solid var(--pos);animation:ping 1.8s cubic-bezier(.4,0,.6,1) infinite}
-@keyframes ping{0%{transform:scale(.5);opacity:.8}100%{transform:scale(2.4);opacity:0}}
-.sync button{color:var(--mute);font-size:.76rem;font-weight:700;text-decoration:underline;text-underline-offset:3px}
+/* ============================================================
+   CONFIGURAÇÃO — edite aqui à vontade
+   ============================================================ */
 
-.banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#fb6f731a;border:1px solid #fb6f7366;color:var(--ink);border-radius:16px;padding:12px 16px;margin:16px 0 0}
-.banner button{color:var(--neg);font-weight:700}
+// Fuso horário usado para "hoje" e "mês atual" (o servidor roda em UTC).
+const TZ = process.env.TIMEZONE || 'America/Rio_Branco';
 
-/* ---------- ticket: fundo + friso perfurado no topo dos cartões ---------- */
-.hero,.card,dialog{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)}
-.hero::before,.card::before,dialog::before{content:'';position:absolute;left:18px;right:18px;top:0;height:1px;background-image:repeating-linear-gradient(to right,var(--line) 0 7px,transparent 7px 16px)}
-.hero::after,.card::after,dialog::after{content:'';position:absolute;top:-5px;left:12px;width:9px;height:9px;border-radius:50%;background:var(--bg);border:1px solid var(--line)}
+// Segurança: coloque seu chat id em ALLOWED_CHAT_ID (mais de um? separe por vírgula).
+// Descubra o seu mandando /id para o bot. Vazio = qualquer pessoa pode usar o bot.
+const ALLOWED = (process.env.ALLOWED_CHAT_ID || '').split(',').map((s) => s.trim()).filter(Boolean);
 
-/* ---------- hero: extrato do mês ---------- */
-.hero{padding:30px 32px 8px;margin:20px 0 14px;opacity:0;transform:translateY(16px)}
-body.ready .hero{opacity:1;transform:none;transition:opacity .6s ease,transform .6s cubic-bezier(.2,.8,.2,1)}
-.hero p{margin:0}.k{color:var(--mute);font-weight:600;font-size:.85rem}
-.big{font-family:Unbounded,'IBM Plex Mono',monospace;font-size:clamp(2.7rem,9.5vw,5rem);font-weight:800;letter-spacing:-.02em;line-height:1.03;margin:8px 0}
-.big.pos{color:var(--pos);text-shadow:0 0 34px rgba(52,211,153,.32)}
-.big.neg{color:var(--neg);text-shadow:0 0 34px rgba(251,111,115,.32)}
-.verdict{color:var(--mute)}
-.delta{color:var(--mute);font-size:.85rem;margin-top:4px!important}
-.split{display:flex;gap:3px;height:16px;margin:26px 0 14px;border-radius:99px;overflow:hidden;background:var(--panel2)}
-.split i{min-width:5px;border-radius:5px;transition:flex 1s cubic-bezier(.2,.8,.2,1)}
-.legend{display:flex;flex-wrap:wrap;gap:8px 22px;list-style:none;margin:0;padding:0 0 22px;font-size:.85rem;color:var(--mute)}
-.legend li{display:flex;align-items:center;gap:8px}.legend i{width:9px;height:9px;border-radius:50%;flex:none}
-.legend b{color:var(--ink);font-family:'IBM Plex Mono',monospace;font-weight:600}
+// Tipos de lançamento. "defaults" são as categorias que sempre aparecem nos botões;
+// as que você já usou antes (e que estão no banco) entram automaticamente depois delas.
+const TYPES = {
+  compra:    { label: 'Compra',    emoji: '🛒', askCategory: true,  defaults: ['Almoço', 'Mercado', 'Lanche', 'Empréstimo', 'Software'] },
+  entrada:   { label: 'Entrada',   emoji: '📥', askCategory: true,  defaults: ['Freela', 'Venda', 'Reembolso'] },
+  acrescimo: { label: 'Acréscimo', emoji: '➕', askCategory: true,  defaults: ['Bônus', 'Presente', 'Rendimento'] },
+  retirada:  { label: 'Retirada',  emoji: '💵', askCategory: false, defaults: [] },
+};
 
-.stats{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px dashed var(--line);margin:0 -32px;padding:16px 32px 18px}
-.stat{padding:0 18px;opacity:0;transform:translateY(8px);transition:opacity .45s ease,transform .45s ease}
-.stat:not(:first-child){border-left:1px dashed var(--line)}
-body.ready .stat{opacity:1;transform:none}
-body.ready .stat:nth-child(1){transition-delay:.05s}body.ready .stat:nth-child(2){transition-delay:.1s}
-body.ready .stat:nth-child(3){transition-delay:.15s}body.ready .stat:nth-child(4){transition-delay:.2s}
-.stat span{font-size:.78rem;color:var(--mute);font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:6px}
-.stat b{display:block;font:600 1.15rem 'IBM Plex Mono';margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stat button{color:var(--accent);font-size:.76rem;font-weight:700}
+const MAX_BUTTONS = 12;              // máximo de categorias nos botões
+const PENDING_TTL = 10 * 60 * 1000;  // botões expiram em 10 min
+const DUP_WINDOW_MS = 3 * 60 * 1000; // mesmo valor+categoria dentro de 3 min = "parece duplicada"
 
-.cols{display:grid;gap:14px;grid-template-columns:1.45fr 1fr;grid-template-areas:"led form" "led cats" "led bills";align-items:start}
-.card{padding:22px}
-.card h2{font-size:1rem;margin:0 0 16px;font-weight:700;padding-top:2px}
-#led{grid-area:led}#form{grid-area:form}#catcard{grid-area:cats}#billcard{grid-area:bills}
-.row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-.row h2{margin:0}
-.link{color:var(--accent);font-weight:700;font-size:.82rem}
+// Emojis por categoria (chave sem acento e minúscula). O resto usa 🏷️
+const CATEGORY_EMOJI = {
+  almoco: '🍽️', jantar: '🍽️', lanche: '🍔', mercado: '🛒', emprestimo: '🤝', software: '💻',
+  freela: '💼', venda: '💰', reembolso: '↩️', bonus: '🎁', presente: '🎁', rendimento: '📈',
+  transporte: '🚌', saude: '💊', lazer: '🎮', jogos: '🎮', assinatura: '🔁',
+};
 
-.pills{display:flex;flex-wrap:wrap;gap:8px}
-.pill{padding:8px 14px;border-radius:999px;border:1px solid var(--line);color:var(--mute);font-weight:700;font-size:.85rem;background:var(--panel2);transition:background .15s,color .15s,border-color .15s}
-.pill.sm{padding:5px 11px;font-size:.78rem}
-.pill[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-.pill:not([aria-pressed=true]):hover{color:var(--ink);border-color:var(--accent)}
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.fld{margin-top:14px}
-.cta{width:100%;margin-top:18px;padding:13px;border-radius:14px;background:var(--accent);color:var(--accent-ink);font:700 .95rem Unbounded;
-  box-shadow:0 4px 0 var(--accent-shadow);transform:translateY(0);transition:transform .1s,box-shadow .1s,filter .1s}
-.cta:hover:not(:disabled){filter:brightness(1.06)}
-.cta:active:not(:disabled){transform:translateY(3px);box-shadow:0 1px 0 var(--accent-shadow)}
-.cta.ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line);box-shadow:none}
-.cta.ghost:active:not(:disabled){transform:translateY(2px)}
-.cta.danger{background:var(--neg);box-shadow:0 4px 0 #a34345}
+/* ============================================================
+   UTILITÁRIOS
+   ============================================================ */
 
-.tools{display:flex;gap:10px;margin:16px 0 12px;flex-wrap:wrap}
-.tools input{flex:1;min-width:140px}
-.day{display:flex;justify-content:space-between;font-size:.78rem;color:var(--mute);margin:20px 0 4px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
-.day .num{font-size:.78rem;text-transform:none;letter-spacing:0}
-.item{display:grid;grid-template-columns:40px 1fr auto 28px 28px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--linefaint);
-  animation:itemIn .3s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0) * 28ms)}
-.item:last-child{border-bottom:0}
-@keyframes itemIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
-.ic{width:40px;height:40px;border-radius:50%;background:var(--panel2);display:grid;place-items:center;font-size:1.1rem}
-.who{min-width:0}
-.who b{display:block;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.who small{color:var(--mute);font-size:.8rem;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tag{display:inline-block;font-size:.65rem;font-weight:700;color:var(--accent);border:1px solid var(--line);border-radius:99px;padding:0 7px;margin-left:6px;vertical-align:1px}
-.item .num{font-weight:600;font-size:.92rem;white-space:nowrap;font-family:'IBM Plex Mono',monospace}
-.x{color:var(--mute);border-radius:50%;width:28px;height:28px;font-size:.85rem;transition:background .15s,color .15s}
-.x:hover{background:#fb6f7322;color:var(--neg)}
-.x.ed:hover{background:#e7b93f22;color:var(--accent)}
-.empty{color:var(--mute);font-size:.9rem;margin:8px 0}
-
-.bar{margin-bottom:12px;animation:itemIn .3s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0) * 40ms)}
-.bar div{display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:5px}
-.bar i{display:block;height:7px;border-radius:99px;background:var(--neg);transition:width .5s cubic-bezier(.2,.8,.2,1)}
-.bill{display:grid;grid-template-columns:34px 1fr 88px 28px 28px;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--linefaint);
-  animation:itemIn .3s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0) * 28ms)}
-.bill .who.off b{color:var(--mute);text-decoration:line-through}
-.bill .who.soon b{color:var(--mute)}
-.bill .who small.warn{color:var(--warn)}
-.bill .amt{text-align:right;padding:7px 9px;font-family:'IBM Plex Mono',monospace;font-size:.85rem}
-.bill .doneicon{width:34px;text-align:center;font-size:1.05rem}
-.bill .paidcell{text-align:right;font:600 .88rem 'IBM Plex Mono';color:var(--mute);white-space:nowrap}
-.bill.done{opacity:.8}
-.addb2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
-details.donewrap summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:.82rem;list-style:none}
-details.donewrap summary::-webkit-details-marker{display:none}
-details.donewrap summary::before{content:'▸ ';display:inline-block;transition:transform .15s}
-details.donewrap[open] summary::before{transform:rotate(90deg)}
-.sw{appearance:none;width:38px;height:22px;padding:0;border-radius:99px;position:relative;cursor:pointer;background:var(--panel2);border:1px solid var(--line);transition:background .15s}
-.sw::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--mute);transition:left .2s}
-.sw:checked{background:var(--accent);border-color:var(--accent)}.sw:checked::after{left:18px;background:var(--accent-ink)}
-.addb{display:grid;grid-template-columns:1fr 96px auto;gap:8px;margin-top:14px}
-.addb button{padding:0 16px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);font-weight:700}
-.tot{display:flex;justify-content:space-between;margin-top:12px;font-weight:700;font-family:'IBM Plex Mono',monospace}
-.hint{color:var(--mute);font-size:.78rem;margin:8px 0 0}
-
-/* ---------- código de barras decorativo ---------- */
-.barcode{height:26px;margin:22px auto 0;max-width:220px;opacity:.5;
-  background-image:repeating-linear-gradient(to right,var(--ink) 0 2px,transparent 2px 4px,var(--ink) 4px 5px,transparent 5px 9px,var(--ink) 9px 12px,transparent 12px 14px,var(--ink) 14px 15px,transparent 15px 19px,var(--ink) 19px 21px,transparent 21px 24px,var(--ink) 24px 27px,transparent 27px 30px)}
-
-dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:22px;padding:24px;width:min(380px,92vw)}
-dialog[open]{animation:dialogIn .22s cubic-bezier(.2,.8,.2,1)}
-dialog::backdrop{background:#050509cc;animation:backdropIn .22s ease}
-@keyframes dialogIn{from{opacity:0;transform:scale(.94) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
-@keyframes backdropIn{from{opacity:0}to{opacity:1}}
-dialog h2{margin:0 0 14px;font-size:1.05rem;font-weight:700}
-dialog p{color:var(--mute);margin:0}
-
-#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,30px) scale(.92);background:var(--ink);color:#141005;padding:11px 18px;border-radius:99px;font-weight:700;opacity:0;pointer-events:none;transition:.3s cubic-bezier(.34,1.56,.64,1);z-index:99;display:flex;align-items:center;gap:14px;max-width:92vw}
-#toast.show{opacity:1;transform:translate(-50%,0) scale(1);pointer-events:auto}#toast.err{background:var(--neg);color:#2a0d0e}
-#toast button{color:var(--accent-shadow);font-weight:800;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
-#toast.err button{color:#2a0d0e}
-
-#login{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;padding:20px;z-index:50}
-#login form{width:min(380px,100%);background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:28px}
-#login h1{margin:0 0 4px;font-size:1.3rem;font-family:Unbounded}
-#login .err{color:var(--neg);font-size:.85rem;min-height:1.2em;margin:12px 0 0}
-
-@media(max-width:860px){
-  .cols{grid-template-columns:1fr;grid-template-areas:"form" "led" "cats" "bills"}
-  .hero{padding:24px 20px 6px}
-  .stats{grid-template-columns:1fr 1fr;margin:0 -20px;row-gap:16px}
-  .stat:nth-child(3),.stat:nth-child(4){padding-top:14px}
-  .stat:nth-child(odd){border-left:0}
-  .stat:nth-child(3),.stat:nth-child(4){border-top:1px dashed var(--line)}
-  .months .mbtn{min-width:108px}
-  .item{grid-template-columns:36px 1fr auto 28px 28px;gap:8px}
-  .bill{grid-template-columns:32px 1fr auto 26px 26px;gap:8px}
-  .ic{width:36px;height:36px}
-}
-@media(prefers-reduced-motion:reduce){
-  *{transition:none!important;animation:none!important}
-  .glow{display:none}
-  .hero,.stat{opacity:1!important;transform:none!important}
-}
-</style>
-</head>
-<body>
-<div class="glow g1" aria-hidden="true"></div>
-<div class="glow g2" aria-hidden="true"></div>
-
-<div id="login" hidden>
-  <form onsubmit="doLogin(event)">
-    <h1>Meu Financeiro</h1>
-    <p class="verdict" style="margin:0 0 18px">Entre para ver e registrar suas finanças.</p>
-    <label for="l-email">E-mail</label>
-    <input id="l-email" type="email" autocomplete="username" required>
-    <div class="fld"><label for="l-pass">Senha</label>
-    <input id="l-pass" type="password" autocomplete="current-password" required></div>
-    <p class="err" id="l-err" role="alert"></p>
-    <button class="cta" type="submit" id="l-btn">Entrar</button>
-  </form>
-</div>
-
-<div class="wrap" id="app">
-  <header class="top">
-    <div class="brand"><span class="mark" aria-hidden="true">R$</span><div><b>Meu Financeiro</b><small>Grupo Star Motos · painel pessoal</small></div></div>
-    <nav class="months" aria-label="Mês">
-      <button onclick="shift(-1)" aria-label="Mês anterior">‹</button>
-      <button type="button" class="mbtn" id="month-label" onclick="openJump()" aria-label="Escolher outro mês" title="Escolher outro mês"></button>
-      <input type="month" id="jump-month" aria-hidden="true" tabindex="-1" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" onchange="jumpMonth(this.value)">
-      <button class="now" id="btn-now" onclick="goToday()" hidden>Hoje</button>
-      <button onclick="shift(1)" aria-label="Próximo mês">›</button>
-    </nav>
-    <div class="sync"><i id="dot"></i><span id="sync">Conectando…</span><button id="logout" onclick="doLogout()" hidden>Sair</button></div>
-  </header>
-
-  <div class="banner" id="banner" role="alert" hidden>
-    <span id="banner-text"></span>
-    <button onclick="loadAll()">Tentar de novo</button>
-  </div>
-
-  <section class="hero">
-    <p class="k" id="hero-k">Sobra este mês</p>
-    <div class="big" id="balance">—</div>
-    <p class="verdict" id="verdict"></p>
-    <p class="delta" id="delta"></p>
-    <div class="split" id="split"></div>
-    <ul class="legend" id="legend"></ul>
-    <div class="stats">
-      <div class="stat"><span>Salário <button onclick="openSalary()">Editar</button></span><b id="s-sal">—</b></div>
-      <div class="stat"><span>Entradas e acréscimos</span><b class="pos" id="s-in">—</b></div>
-      <div class="stat"><span>Contas fixas</span><b class="neg" id="s-bills">—</b></div>
-      <div class="stat"><span>Compras e retiradas</span><b class="neg" id="s-out">—</b></div>
-    </div>
-  </section>
-
-  <div class="cols">
-    <form class="card" id="form" onsubmit="submitTx(event)" novalidate>
-      <h2>Nova movimentação</h2>
-      <div class="pills" id="types"></div>
-      <div class="g2 fld">
-        <div><label for="f-amount">Valor (R$)</label><input id="f-amount" inputmode="decimal" placeholder="0,00" autocomplete="off" required></div>
-        <div><label for="f-date">Data</label><input id="f-date" type="date"></div>
-      </div>
-      <div class="fld"><label for="f-cat">Categoria</label><input id="f-cat" list="cat-list" placeholder="Escolha abaixo ou digite outra" autocomplete="off" maxlength="40"></div>
-      <datalist id="cat-list"></datalist>
-      <div class="pills fld" id="chips"></div>
-      <div class="fld"><label for="f-desc">Descrição (opcional)</label><input id="f-desc" placeholder="Detalhes rápidos" autocomplete="off" maxlength="120"></div>
-      <button class="cta" type="submit" id="submit">Registrar</button>
-    </form>
-
-    <section class="card" id="led">
-      <div class="row"><h2>Movimentações</h2><button class="link" onclick="exportCsv()">Exportar CSV</button></div>
-      <div class="tools">
-        <input id="q" type="search" placeholder="Buscar por categoria ou descrição" oninput="q=this.value;renderLedger()" aria-label="Buscar">
-      </div>
-      <div class="pills" id="filters"></div>
-      <div id="ledger"></div>
-    </section>
-
-    <section class="card" id="catcard">
-      <h2>Para onde foi o dinheiro</h2>
-      <div id="cats"></div>
-    </section>
-
-    <section class="card" id="billcard">
-      <h2>Contas fixas</h2>
-      <div id="bills"></div>
-      <div class="addb">
-        <input id="nb-name" placeholder="Nome da conta" aria-label="Nome da conta" maxlength="60" onkeydown="if(event.key==='Enter')addBill()">
-        <input id="nb-amt" inputmode="decimal" placeholder="Valor" aria-label="Valor da conta" onkeydown="if(event.key==='Enter')addBill()">
-        <button id="nb-btn" onclick="addBill()">Adicionar</button>
-      </div>
-      <div class="addb2">
-        <input id="nb-total" inputmode="numeric" placeholder="Parcelas (opcional)" aria-label="Número de parcelas" maxlength="3" oninput="updateNbHint()" onkeydown="if(event.key==='Enter')addBill()">
-        <input id="nb-due" inputmode="numeric" placeholder="Dia venc. (opcional)" aria-label="Dia de vencimento" maxlength="2" onkeydown="if(event.key==='Enter')addBill()">
-      </div>
-      <p class="hint" id="nb-hint" hidden></p>
-      <p class="hint">Tem prazo (financiamento, parcelado)? Informe as parcelas: a conta some sozinha quando quitar. Se o nome já existir, você escolhe se quer atualizar.</p>
-      <div class="tot"><span>Total ativo</span><span class="num" id="bills-total">—</span></div>
-      <div id="bills-done-wrap" hidden style="margin-top:12px">
-        <details class="donewrap">
-          <summary>Contas quitadas</summary>
-          <div id="bills-done" style="margin-top:6px"></div>
-        </details>
-      </div>
-    </section>
-  </div>
-  <div class="barcode" aria-hidden="true"></div>
-</div>
-
-<dialog id="dlg" aria-labelledby="dlg-t">
-  <form onsubmit="saveSalary(event)">
-    <h2 id="dlg-t">Editar salário</h2>
-    <label for="d-sal">Salário mensal (R$)</label>
-    <input id="d-sal" inputmode="decimal" required>
-    <button class="cta" type="submit">Salvar salário</button>
-    <button class="cta ghost" type="button" onclick="$('dlg').close()">Cancelar</button>
-  </form>
-</dialog>
-
-<dialog id="edlg" aria-labelledby="edlg-t">
-  <form onsubmit="saveEdit(event)" novalidate>
-    <h2 id="edlg-t">Editar movimentação</h2>
-    <label for="e-type">Tipo</label>
-    <select id="e-type"></select>
-    <div class="g2 fld">
-      <div><label for="e-amount">Valor (R$)</label><input id="e-amount" inputmode="decimal" autocomplete="off"></div>
-      <div><label for="e-date">Data</label><input id="e-date" type="date"></div>
-    </div>
-    <div class="fld"><label for="e-cat">Categoria</label><input id="e-cat" list="cat-list" autocomplete="off" maxlength="40"></div>
-    <div class="fld"><label for="e-desc">Descrição</label><input id="e-desc" autocomplete="off" maxlength="120"></div>
-    <button class="cta" type="submit" id="e-save">Salvar alterações</button>
-    <button class="cta ghost" type="button" onclick="$('edlg').close()">Cancelar</button>
-  </form>
-</dialog>
-
-<dialog id="bdlg" aria-labelledby="bdlg-t">
-  <form onsubmit="saveBillDetails(event)" novalidate>
-    <h2 id="bdlg-t">Detalhes da conta</h2>
-    <p class="verdict" id="bd-name" style="margin:0 0 14px"></p>
-    <label for="bd-amt">Valor (R$)</label>
-    <input id="bd-amt" inputmode="decimal" autocomplete="off" required>
-    <div class="g2 fld">
-      <div><label for="bd-total">Parcelas (opcional)</label><input id="bd-total" inputmode="numeric" placeholder="Sem prazo" oninput="updateBillHint()"></div>
-      <div><label for="bd-start">Começa em</label><input id="bd-start" type="month" oninput="updateBillHint()" required></div>
-    </div>
-    <div class="fld"><label for="bd-due">Dia de vencimento (opcional)</label><input id="bd-due" inputmode="numeric" placeholder="Ex.: 10" maxlength="2"></div>
-    <p class="hint" id="bd-hint"></p>
-    <button class="cta" type="submit">Salvar</button>
-    <button class="cta ghost" type="button" onclick="$('bdlg').close()">Cancelar</button>
-  </form>
-</dialog>
-
-<dialog id="cdlg" aria-labelledby="c-title">
-  <h2 id="c-title"></h2>
-  <p id="c-text"></p>
-  <button class="cta" id="c-ok" type="button"></button>
-  <button class="cta ghost" id="c-no" type="button">Cancelar</button>
-</dialog>
-
-<div id="toast" role="status" aria-live="polite"></div>
-
-<script>
-// A anon key foi feita para ficar no cliente: o acesso é controlado pelas policies do banco.
-const CFG = { url: 'https://cantpchtkijvqwlcgklz.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNhbnRwY2h0a2lqdnF3bGNna2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyMDAzNzcsImV4cCI6MjEwNTc3NjM3N30.Te7boSxpucRsa9JtHUBa-Ap18zlNT1WsvqKWHSDvnfk' };
-
-// Mude para true depois de seguir o bloco "OPCIONAL B" do sql.txt (exige e-mail e senha para entrar).
-const REQUIRE_LOGIN = false;
-
-const DUP_WINDOW = 3 * 60 * 1000; // mesmo valor + categoria em até 3 min = "parece duplicada"
-let sb = null;
-
-const $ = (id) => document.getElementById(id);
 const pad = (n) => String(n).padStart(2, '0');
-const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const brl = (n) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-const cap = (s) => (s ? s.charAt(0).toLocaleUpperCase('pt-BR') + s.slice(1) : s);
-const uid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
-// Aceita "45", "45,90", "45.90", "1.234,56", "R$ 45" — mesma regra do bot
-const num = (v) => {
-  const s0 = String(v ?? '').replace(/R\$/i, '').replace(/\s/g, '');
-  if (!/^[\d.,]+$/.test(s0)) return NaN;
-  let s = s0;
-  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
-  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
-};
-const validAmt = (n) => n > 0 && n < 1e8;
 
-const T = {
-  compra:    { l: 'Compra',    i: '🛒', s: -1 },
-  retirada:  { l: 'Retirada',  i: '💵', s: -1 },
-  entrada:   { l: 'Entrada',   i: '📥', s: 1 },
-  acrescimo: { l: 'Acréscimo', i: '➕', s: 1 },
-};
-const DEF = {
-  compra: ['Almoço', 'Mercado', 'Lanche', 'Empréstimo', 'Software'],
-  entrada: ['Freela', 'Venda', 'Reembolso'],
-  acrescimo: ['Bônus', 'Presente', 'Rendimento'],
-  retirada: [],
+function nowParts() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (t) => Number(parts.find((p) => p.type === t).value);
+  return { y: get('year'), m: get('month'), d: get('day') };
+}
+
+const todayISO = () => {
+  const { y, m, d } = nowParts();
+  return `${y}-${pad(m)}-${pad(d)}`;
 };
 
-let ym = iso(new Date()).slice(0, 7), tx = [], bills = [], salary = 0, prevSpent = 0;
-let usedCats = {}; // tipo -> [{name,count}] vindo do histórico inteiro
-let type = 'compra', flt = 'all', q = '';
-let formKey = uid(); // identifica ESTE preenchimento do formulário (anti-duplicidade)
-let editingId = null, loadSeq = 0, wasDown = false;
-const busy = { tx: false, bill: false, edit: false };
-
-/* ---------- avisos e diálogos ---------- */
-function toast(msg, o = {}) {
-  const e = $('toast');
-  e.className = ''; e.textContent = '';
-  const s = document.createElement('span'); s.textContent = msg; e.append(s);
-  if (o.action) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.textContent = o.action.label;
-    b.onclick = () => { e.className = ''; o.action.fn(); };
-    e.append(b);
+// Sem argumento = mês atual. Aceita "anterior", "-2" (2 meses atrás) ou "MM/AAAA".
+// Retorna null se não entender.
+function monthBounds(arg) {
+  let { y, m } = nowParts();
+  const s = String(arg || '').trim().toLowerCase();
+  if (s) {
+    let back = null;
+    if (s === 'anterior' || s === 'passado') back = 1;
+    else if (/^-\d{1,2}$/.test(s)) back = Math.abs(Number(s));
+    if (back !== null) {
+      const d = new Date(Date.UTC(y, m - 1 - back, 1));
+      y = d.getUTCFullYear();
+      m = d.getUTCMonth() + 1;
+    } else {
+      const mm = s.match(/^(\d{1,2})[/-](\d{4})$/);
+      if (!mm || Number(mm[1]) < 1 || Number(mm[1]) > 12) return null;
+      m = Number(mm[1]);
+      y = Number(mm[2]);
+    }
   }
-  if (o.err) e.classList.add('err');
-  requestAnimationFrame(() => e.classList.add('show'));
-  clearTimeout(toast.t);
-  toast.t = setTimeout(() => e.classList.remove('show'), o.ms || (o.action ? 7000 : 2800));
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { start: `${y}-${pad(m)}-01`, end: `${y}-${pad(m)}-${pad(last)}`, label: `${pad(m)}/${y}`, ym: `${y}-${pad(m)}` };
 }
-
-function askConfirm(title, text, okLabel = 'Confirmar') {
-  return new Promise((resolve) => {
-    const d = $('cdlg');
-    $('c-title').textContent = title; $('c-text').textContent = text; $('c-ok').textContent = okLabel;
-    let result = false;
-    const done = () => { d.removeEventListener('close', done); resolve(result); };
-    d.addEventListener('close', done);
-    $('c-ok').onclick = () => { result = true; d.close(); };
-    $('c-no').onclick = () => d.close();
-    d.showModal();
-  });
-}
-
-function setBanner(msg) {
-  $('banner').hidden = !msg;
-  if (msg) $('banner-text').textContent = msg;
-}
-
-const friendly = (e) => {
-  if (!e) return 'Erro desconhecido.';
-  if (e.code === '23505') return 'Esse registro já existe.';
-  if (/failed to fetch|network/i.test(e.message || '')) return 'Sem conexão. Verifique a internet e tente de novo.';
-  return e.message || 'Algo deu errado.';
-};
-
-/* ---------- pequenas animações (contagem numérica e troca de mês) ---------- */
-const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-const numState = new WeakMap();
-function animateNumber(el, to, fmt, ms = 650) {
-  if (reduceMotion) { el.textContent = fmt(to); numState.set(el, to); return; }
-  const from = numState.get(el) ?? 0;
-  cancelAnimationFrame(el._raf);
-  const start = performance.now();
-  const step = (t) => {
-    const p = Math.min(1, (t - start) / ms);
-    const eased = 1 - Math.pow(1 - p, 3);
-    el.textContent = fmt(from + (to - from) * eased);
-    if (p < 1) el._raf = requestAnimationFrame(step);
-  };
-  el._raf = requestAnimationFrame(step);
-  numState.set(el, to);
-}
-function setMonthLabel(text) {
-  const el = $('month-label');
-  el.classList.remove('flip'); void el.offsetWidth;
-  el.textContent = text; el.classList.add('flip');
-}
-
-const sum = (t) => tx.filter((x) => x.type === t).reduce((s, x) => s + Number(x.amount), 0);
 
 /* ---------- parcelas e vencimento das contas fixas ----------
-   Cada conta tem um mês de início (start_month) e, opcionalmente, um total
-   de parcelas. A "situação" dela em qualquer mês é só matemática de datas —
-   por isso uma dívida quitada some sozinha das contas ativas dos meses
-   seguintes, sem precisar de nenhuma tarefa agendada rodando no servidor. */
+   Mesma lógica do site: cada conta tem um mês de início (start_month) e,
+   opcionalmente, um total de parcelas. Uma dívida quitada some sozinha das
+   contas ativas dos meses seguintes — é só matemática de datas, calculada
+   na hora, sem precisar de nenhuma tarefa agendada. */
+const currentYm = () => { const { y, m } = nowParts(); return `${y}-${pad(m)}`; };
 const ymToIndex = (s) => { const [y, m] = s.split('-').map(Number); return y * 12 + (m - 1); };
-const indexToYm = (idx) => `${Math.floor(idx / 12)}-${pad((idx % 12) + 1)}`;
-const monthShort = (ymStr) => {
-  const [y, m] = ymStr.slice(0, 7).split('-').map(Number);
-  return cap(new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }).replace('.', ''));
-};
+const indexToYmLabel = (idx) => `${pad((idx % 12) + 1)}/${Math.floor(idx / 12)}`;
 function billStatus(b, ymStr) {
   const total = b.installments_total;
-  const diff = ymToIndex(ymStr) - ymToIndex(b.start_month.slice(0, 7));
+  const diff = ymToIndex(ymStr) - ymToIndex(String(b.start_month).slice(0, 7));
   const started = diff >= 0;
   const finished = total != null && diff >= total;
   const num = started && !finished ? diff + 1 : null;
   return { started, finished, num, diff };
 }
-const billFinishYm = (b) => indexToYm(ymToIndex(b.start_month.slice(0, 7)) + b.installments_total - 1);
-const billsTotalFor = (ymStr) => bills
-  .filter((b) => b.active && billStatus(b, ymStr).started && !billStatus(b, ymStr).finished)
-  .reduce((s, b) => s + Number(b.amount), 0);
-
-/* ---------- categorias (sem duplicar por maiúscula/acento) ---------- */
-function catList(t) {
-  const seen = new Set(), list = [];
-  const hist = usedCats[t] || [];
-  const byKey = new Map(hist.map((h) => [norm(h.name), h.name]));
-  // padrão primeiro (mantendo a grafia que você já usou), depois as mais usadas
-  const add = (name) => { const k = norm(name); if (k && !seen.has(k)) { seen.add(k); list.push(byKey.get(k) || name); } };
-  DEF[t].forEach(add);
-  hist.forEach((h) => add(h.name));
-  tx.filter((x) => x.type === t && x.category).forEach((x) => add(x.category));
-  return list;
-}
-function canonCat(t, name) {
-  const clean = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 40);
-  if (!clean) return null;
-  const hit = catList(t).find((c) => norm(c) === norm(clean));
-  return hit || cap(clean);
+function billLine(b, st) {
+  const bits = [];
+  if (b.installments_total) bits.push(st.num === b.installments_total ? 'última parcela' : `parcela ${st.num}/${b.installments_total}`);
+  if (b.due_day) bits.push(`vence dia ${b.due_day}`);
+  return `• ${esc(b.name)}: <b>${brl(b.amount)}</b>${bits.length ? ` <i>(${bits.join(', ')})</i>` : ''}`;
 }
 
-/* ---------- carregar ---------- */
-function setDate() { $('f-date').value = ym === iso(new Date()).slice(0, 7) ? iso(new Date()) : ym + '-01'; }
-function shift(n) {
-  const [y, m] = ym.split('-').map(Number);
-  ym = iso(new Date(y, m - 1 + n, 1)).slice(0, 7);
-  setDate(); loadAll();
-}
-function goToday() { ym = iso(new Date()).slice(0, 7); setDate(); loadAll(); }
-function openJump() {
-  const el = $('jump-month');
-  el.value = ym;
-  if (el.showPicker) { try { el.showPicker(); return; } catch (e) {} }
-  el.style.pointerEvents = 'auto'; el.style.opacity = '1'; el.focus();
-  setTimeout(() => { el.style.pointerEvents = 'none'; el.style.opacity = '0'; }, 300);
-}
-function jumpMonth(v) { if (!v || v === ym) return; ym = v; setDate(); loadAll(); }
-
-let refreshTimer = null;
-function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(loadAll, 200); }
-
-async function loadAll() {
-  const seq = ++loadSeq;
-  const [y, m] = ym.split('-').map(Number), last = new Date(y, m, 0).getDate();
-  const pStart = iso(new Date(y, m - 2, 1)), pEnd = iso(new Date(y, m - 1, 0));
-  try {
-    const [s, b, t, p, c] = await Promise.all([
-      sb.from('settings').select('salary').eq('id', 1).maybeSingle(),
-      sb.from('fixed_bills').select('*').order('created_at').order('name'),
-      sb.from('transactions').select('*').gte('occurred_on', ym + '-01').lte('occurred_on', `${ym}-${pad(last)}`)
-        .order('occurred_on', { ascending: false }).order('created_at', { ascending: false }),
-      sb.from('transactions').select('amount').in('type', ['compra', 'retirada']).gte('occurred_on', pStart).lte('occurred_on', pEnd),
-      sb.from('transactions').select('type, category').not('category', 'is', null).order('created_at', { ascending: false }).limit(1000),
-    ]);
-    if (seq !== loadSeq) return; // uma carga mais nova já chegou
-    const err = [s, b, t, p, c].find((r) => r.error);
-    if (err) throw err.error;
-
-    salary = s.data ? Number(s.data.salary) : 0;
-    bills = b.data || [];
-    tx = t.data || [];
-    prevSpent = (p.data || []).reduce((acc, x) => acc + Number(x.amount), 0);
-
-    const counts = {};
-    (c.data || []).forEach((r) => {
-      const map = (counts[r.type] ??= new Map());
-      const k = norm(r.category), cur = map.get(k) || { name: r.category.trim(), count: 0 };
-      cur.count++; map.set(k, cur);
-    });
-    usedCats = {};
-    Object.keys(counts).forEach((k) => (usedCats[k] = [...counts[k].values()].sort((a, z) => z.count - a.count)));
-
-    setBanner('');
-    renderAll();
-  } catch (e) {
-    if (seq !== loadSeq) return;
-    setBanner('Não foi possível carregar seus dados: ' + friendly(e));
-  }
-}
-
-/* ---------- desenhar ---------- */
-function renderAll() {
-  const [y, m] = ym.split('-').map(Number);
-  setMonthLabel(new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
-  $('btn-now').hidden = ym === iso(new Date()).slice(0, 7);
-  renderHero(); renderChips(); renderFilters(); renderLedger(); renderCats(); renderBills();
-  document.body.classList.add('ready');
-}
-
-function renderHero() {
-  const [y, m] = ym.split('-').map(Number);
-  const isNow = ym === iso(new Date()).slice(0, 7);
-  $('hero-k').textContent = isNow ? 'Sobra este mês' : 'Sobra em ' + new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long' });
-  const inc = salary + sum('entrada') + sum('acrescimo');
-  const b = billsTotalFor(ym), c = sum('compra'), r = sum('retirada');
-  const bal = inc - b - c - r, base = Math.max(inc, b + c + r) || 1;
-  const el = $('balance');
-  el.className = 'big ' + (bal >= 0 ? 'pos' : 'neg');
-  animateNumber(el, bal, brl);
-  $('verdict').textContent = bal >= 0
-    ? (inc ? `${Math.round((bal / inc) * 100)}% da renda do mês ainda está livre.` : 'Nenhuma renda registrada neste mês.')
-    : `Você gastou ${brl(-bal)} acima da renda deste mês.`;
-  $('delta').textContent = (c + r > 0 || prevSpent > 0)
-    ? `Compras e retiradas: ${brl(c + r)} · mês anterior inteiro: ${brl(prevSpent)}`
-    : '';
-  const segs = [['Contas fixas', b, 'violet'], ['Compras', c, 'coral'], ['Retiradas', r, 'amber'], ['Sobra', Math.max(bal, 0), 'mint']];
-  $('split').innerHTML = segs.filter((s) => s[1] > 0).map((s) => `<i class="${s[2]}" style="flex:${s[1] / base}" title="${s[0]}"></i>`).join('');
-  $('legend').innerHTML = segs.map((s) => `<li><i class="${s[2]}"></i>${s[0]} <b>${brl(s[1])}</b></li>`).join('');
-  animateNumber($('s-sal'), salary, brl);
-  animateNumber($('s-in'), sum('entrada') + sum('acrescimo'), brl);
-  animateNumber($('s-bills'), b, brl);
-  animateNumber($('s-out'), c + r, brl);
-}
-
-function renderChips() {
-  $('types').innerHTML = Object.keys(T).map((k) =>
-    `<button type="button" class="pill" aria-pressed="${k === type}" onclick="setType('${k}')">${T[k].l}</button>`).join('');
-  const list = catList(type);
-  $('chips').innerHTML = list.slice(0, 10).map((c) =>
-    `<button type="button" class="pill sm" data-c="${esc(c)}" onclick="$('f-cat').value=this.dataset.c">${esc(c)}</button>`).join('');
-  $('cat-list').innerHTML = list.map((c) => `<option value="${esc(c)}"></option>`).join('');
-}
-function setType(k) { type = k; renderChips(); }
-
-function renderFilters() {
-  const f = { all: 'Tudo', compra: 'Compras', retirada: 'Retiradas', entrada: 'Entradas', acrescimo: 'Acréscimos' };
-  $('filters').innerHTML = Object.keys(f).map((k) =>
-    `<button class="pill sm" aria-pressed="${k === flt}" onclick="flt='${k}';renderFilters();renderLedger()">${f[k]}</button>`).join('');
-}
-
-const dayLabel = (d) => {
-  if (d === iso(new Date())) return 'Hoje';
-  if (d === iso(new Date(Date.now() - 864e5))) return 'Ontem';
-  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' });
+const fmtDay = (iso) => {
+  const [, m, d] = String(iso).split('-');
+  return `${d}/${m}`;
 };
 
-function renderLedger() {
-  const list = tx.filter((x) => (flt === 'all' || x.type === flt) && (!q || norm((x.category || '') + ' ' + (x.description || '')).includes(norm(q))));
-  if (!list.length) {
-    $('ledger').innerHTML = `<p class="empty">${tx.length ? 'Nada encontrado com esse filtro.' : 'Nenhuma movimentação neste mês. Registre a primeira no formulário.'}</p>`;
-    return;
-  }
-  const days = {};
-  list.forEach((x) => (days[x.occurred_on] ??= []).push(x));
-  let i = 0;
-  $('ledger').innerHTML = Object.keys(days).sort().reverse().map((d) => {
-    const net = days[d].reduce((s, x) => s + T[x.type].s * Number(x.amount), 0);
-    return `<h3 class="day"><span>${dayLabel(d)}</span><span class="num ${net >= 0 ? 'pos' : 'neg'}">${net >= 0 ? '+' : '−'} ${brl(Math.abs(net))}</span></h3>` +
-      days[d].map((x) => {
-        const s = T[x.type].s;
-        const sub = x.description ? esc(x.description) : '';
-        const tag = x.source === 'telegram' ? '<span class="tag">bot</span>' : '';
-        return `<div class="item" style="--i:${i++}"><span class="ic">${T[x.type].i}</span>
-          <div class="who"><b>${esc(x.category || T[x.type].l)}${tag}</b>${sub ? `<small>${sub}</small>` : ''}</div>
-          <span class="num ${s > 0 ? 'pos' : 'neg'}">${s > 0 ? '+' : '−'} ${brl(x.amount)}</span>
-          <button class="x ed" aria-label="Editar" title="Editar" onclick="openEdit('${x.id}')">✎</button>
-          <button class="x" aria-label="Excluir" title="Excluir" onclick="delTx('${x.id}')">✕</button></div>`;
-      }).join('');
-  }).join('');
+const brl = (n) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const normKey = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const cap = (s) => (s ? s.charAt(0).toLocaleUpperCase('pt-BR') + s.slice(1) : s);
+const emojiFor = (cat) => CATEGORY_EMOJI[normKey(cat)] || '🏷️';
+const newToken = () => crypto.randomBytes(4).toString('hex');
+const sumOf = (list) => list.reduce((s, x) => s + Number(x.amount), 0);
+
+// Detecta se uma Entrada/Acréscimo parece ser o salário mensal (para avisar
+// que existe o campo fixo /salario, que evita lançar isso todo mês por engano).
+const looksLikeSalary = (category, description) => /salario/.test(normKey(`${category || ''} ${description || ''}`));
+
+// Aceita "45", "45,90", "45.90", "1.234,56", "R$45"
+function parseAmount(str) {
+  if (!str) return NaN;
+  let s = String(str).replace(/R\$/i, '').replace(/\s/g, '');
+  if (!/^[\d.,]+$/.test(s)) return NaN;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
 }
 
-function renderCats() {
-  const mp = new Map();
-  tx.filter((x) => x.type === 'compra').forEach((x) => {
-    const k = norm(x.category || 'sem categoria'), c = mp.get(k) || { n: cap(x.category) || 'Sem categoria', v: 0 };
-    c.v += Number(x.amount); mp.set(k, c);
-  });
-  const a = [...mp.values()].sort((p, r) => r.v - p.v).slice(0, 6);
-  const total = sum('compra') || 1;
-  $('cats').innerHTML = a.length
-    ? a.map((c, i) => `<div class="bar" style="--i:${i}"><div><span>${esc(c.n)} <small style="color:var(--mute)">${Math.round(c.v / total * 100)}%</small></span><b class="num">${brl(c.v)}</b></div><i style="width:${(c.v / a[0].v * 100).toFixed(0)}%"></i></div>`).join('')
-    : '<p class="empty">Nenhuma compra neste mês.</p>';
-}
+const validAmount = (n) => n > 0 && n < 100000000;
 
-function billSubtitle(b, st) {
-  const parts = [];
-  if (b.installments_total) {
-    if (!st.started) parts.push(`Começa em ${monthShort(b.start_month)}`);
-    else if (st.num === b.installments_total) parts.push('Última parcela 🎉');
-    else parts.push(`Parcela ${st.num}/${b.installments_total}`);
-  }
-  if (b.due_day) parts.push(`Vence dia ${b.due_day}`);
-  return parts.join(' · ');
-}
-function billRowHtml(b, st, i) {
-  const cls = !b.active ? 'off' : (!st.started ? 'soon' : '');
-  const sub = billSubtitle(b, st);
-  return `<div class="bill" style="--i:${i}">
-    <input type="checkbox" class="sw" ${b.active ? 'checked' : ''} aria-label="Conta ativa: ${esc(b.name)}" onchange="upBill('${b.id}',{active:this.checked})">
-    <div class="who ${cls}"><b>${esc(b.name)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div>
-    <input class="amt" inputmode="decimal" value="${Number(b.amount).toFixed(2)}" aria-label="Valor de ${esc(b.name)}" onchange="upBillAmount('${b.id}',this)">
-    <button class="x ed" aria-label="Detalhes de ${esc(b.name)}" title="Parcelas e vencimento" onclick="openBillDetails('${b.id}')">✎</button>
-    <button class="x" aria-label="Excluir ${esc(b.name)}" onclick="delBill('${b.id}')">✕</button></div>`;
-}
-function billDoneHtml(b, i) {
-  const paid = Number(b.amount) * b.installments_total;
-  return `<div class="bill done" style="--i:${i}">
-    <span class="doneicon" aria-hidden="true">✅</span>
-    <div class="who"><b>${esc(b.name)}</b><small>Quitada em ${monthShort(billFinishYm(b))} · ${b.installments_total}x de ${brl(b.amount)}</small></div>
-    <span class="paidcell">${brl(paid)}</span>
-    <button class="x ed" aria-label="Refazer ${esc(b.name)}" title="Começar um novo parcelamento com esse nome" onclick="redoBill('${b.id}')">🔁</button>
-    <button class="x" aria-label="Excluir ${esc(b.name)}" onclick="delBill('${b.id}')">✕</button></div>`;
-}
-function renderBills() {
-  const rows = bills.map((b) => ({ b, st: billStatus(b, ym) }));
-  const current = rows.filter((r) => !r.st.finished);
-  const done = rows.filter((r) => r.st.finished).sort((x, y) => billFinishYm(y.b).localeCompare(billFinishYm(x.b)));
+const authorized = (chatId) => ALLOWED.length === 0 || ALLOWED.includes(String(chatId));
 
-  current.sort((x, y) => {
-    const rank = (r) => (!r.b.active ? 2 : (!r.st.started ? 1 : 0));
-    const rx = rank(x), ry = rank(y);
-    if (rx !== ry) return rx - ry;
-    const dx = x.b.due_day ?? 99, dy = y.b.due_day ?? 99;
-    if (dx !== dy) return dx - dy;
-    return x.b.name.localeCompare(y.b.name, 'pt-BR');
-  });
-
-  $('bills').innerHTML = current.length ? current.map((r, i) => billRowHtml(r.b, r.st, i)).join('')
-    : '<p class="empty">Nenhuma conta fixa. Adicione a primeira abaixo.</p>';
-  animateNumber($('bills-total'), billsTotalFor(ym), brl);
-
-  $('bills-done-wrap').hidden = done.length === 0;
-  $('bills-done').innerHTML = done.map((r, i) => billDoneHtml(r.b, i)).join('');
-}
-
-/* ---------- movimentações ---------- */
-function findSimilar(row) {
-  const now = Date.now();
-  return tx.find((x) => x.type === row.type && Number(x.amount) === row.amount &&
-    norm(x.category || '') === norm(row.category || '') && x.occurred_on === row.occurred_on &&
-    x.created_at && now - new Date(x.created_at).getTime() < DUP_WINDOW);
-}
-
-async function submitTx(e) {
-  e.preventDefault();
-  if (busy.tx) return; // segura duplo clique / Enter repetido
-  const amount = num($('f-amount').value);
-  if (!validAmt(amount)) return toast('Informe um valor maior que zero.', { err: 1 });
-
-  const row = {
-    type, amount,
-    category: canonCat(type, $('f-cat').value),
-    description: $('f-desc').value.trim() || null,
-    occurred_on: $('f-date').value || iso(new Date()),
-    source: 'site',
-    client_id: 'site:' + formKey, // mesmo preenchimento nunca grava duas vezes
+// Envolve um handler: checa autorização e captura erros
+function guarded(fn) {
+  return async (msg, match) => {
+    const chatId = msg.chat.id;
+    if (!authorized(chatId)) {
+      bot.sendMessage(chatId, '⛔ Acesso não autorizado. Mande /id para ver o seu chat id.');
+      return;
+    }
+    try {
+      await fn(msg, match);
+    } catch (e) {
+      console.error(e);
+      bot.sendMessage(chatId, '⚠️ Erro: ' + (e.message || e));
+    }
   };
-
-  busy.tx = true;
-  const btn = $('submit'); btn.disabled = true; btn.textContent = 'Registrando…';
-  try {
-    if (findSimilar(row)) {
-      const go = await askConfirm('Parece duplicada',
-        `Você já registrou ${T[type].l.toLowerCase()} de ${brl(amount)}${row.category ? ' em ' + row.category : ''} há poucos minutos. Registrar mesmo assim?`,
-        'Registrar mesmo assim');
-      if (!go) return;
-    }
-    const { error } = await sb.from('transactions').insert(row);
-    if (error && error.code !== '23505') throw error;
-    ['f-amount', 'f-cat', 'f-desc'].forEach((i) => ($(i).value = ''));
-    formKey = uid(); // formulário "novo" para a próxima movimentação
-    toast(error ? 'Essa movimentação já estava registrada.' : T[type].l + ' registrada.');
-    $('f-amount').focus();
-    await loadAll();
-  } catch (err) {
-    toast(friendly(err), { err: 1 }); // formKey mantida: tentar de novo não duplica
-  } finally {
-    busy.tx = false; btn.disabled = false; btn.textContent = 'Registrar';
-  }
 }
 
-async function delTx(id) {
-  const row = tx.find((x) => x.id === id);
-  if (!row) return;
-  const { error } = await sb.from('transactions').delete().eq('id', id);
-  if (error) return toast(friendly(error), { err: 1 });
-  tx = tx.filter((x) => x.id !== id); renderAll();
-  toast('Movimentação excluída.', {
-    action: {
-      label: 'Desfazer',
-      fn: async () => {
-        const { error: e2 } = await sb.from('transactions').insert(row);
-        if (e2 && e2.code !== '23505') return toast(friendly(e2), { err: 1 });
-        toast('Movimentação restaurada.'); loadAll();
-      },
-    },
-  });
-  loadAll();
-}
+const cmd = (name) => new RegExp(`^\\/(?:${name})(?:@\\w+)?(?:\\s+([\\s\\S]+))?\\s*$`);
+const html = { parse_mode: 'HTML' };
 
-function openEdit(id) {
-  const x = tx.find((r) => r.id === id);
-  if (!x) return;
-  editingId = id;
-  $('e-type').innerHTML = Object.keys(T).map((k) => `<option value="${k}" ${k === x.type ? 'selected' : ''}>${T[k].l}</option>`).join('');
-  $('e-amount').value = Number(x.amount).toFixed(2).replace('.', ',');
-  $('e-date').value = x.occurred_on;
-  $('e-cat').value = x.category || '';
-  $('e-desc').value = x.description || '';
-  $('edlg').showModal();
-}
-async function saveEdit(e) {
-  e.preventDefault();
-  if (busy.edit || !editingId) return;
-  const amount = num($('e-amount').value);
-  if (!validAmt(amount)) return toast('Informe um valor maior que zero.', { err: 1 });
-  const t = $('e-type').value;
-  busy.edit = true; $('e-save').disabled = true;
-  try {
-    const { error } = await sb.from('transactions').update({
-      type: t, amount,
-      category: canonCat(t, $('e-cat').value),
-      description: $('e-desc').value.trim() || null,
-      occurred_on: $('e-date').value || iso(new Date()),
-    }).eq('id', editingId);
-    if (error) throw error;
-    $('edlg').close(); toast('Alterações salvas.'); await loadAll();
-  } catch (err) {
-    toast(friendly(err), { err: 1 });
-  } finally {
-    busy.edit = false; $('e-save').disabled = false;
-  }
-}
-
-/* ---------- contas fixas ---------- */
-async function upBill(id, p) {
-  const { error } = await sb.from('fixed_bills').update(p).eq('id', id);
-  if (error) toast(friendly(error), { err: 1 });
-  loadAll();
-}
-function upBillAmount(id, input) {
-  const n = num(input.value);
-  if (!validAmt(n)) {
-    toast('Valor inválido. Use um número maior que zero.', { err: 1 });
-    const b = bills.find((x) => x.id === id);
-    if (b) input.value = Number(b.amount).toFixed(2);
-    return;
-  }
-  upBill(id, { amount: n });
-}
-async function delBill(id) {
-  const row = bills.find((b) => b.id === id);
-  if (!row) return;
-  const { error } = await sb.from('fixed_bills').delete().eq('id', id);
-  if (error) return toast(friendly(error), { err: 1 });
-  bills = bills.filter((b) => b.id !== id); renderAll();
-  toast('Conta excluída.', {
-    action: {
-      label: 'Desfazer',
-      fn: async () => {
-        const { error: e2 } = await sb.from('fixed_bills').insert(row);
-        if (e2) return toast(e2.code === '23505' ? 'Já existe uma conta com esse nome.' : friendly(e2), { err: 1 });
-        toast('Conta restaurada.'); loadAll();
-      },
-    },
-  });
-  loadAll();
-}
-function parseInstallments(raw) {
-  const s = raw.trim();
-  if (!s) return { ok: true, value: null };
-  const n = parseInt(s, 10);
-  return Number.isInteger(n) && n >= 1 && n <= 600 ? { ok: true, value: n } : { ok: false };
-}
-function parseDueDay(raw) {
-  const s = raw.trim();
-  if (!s) return { ok: true, value: null };
-  const n = parseInt(s, 10);
-  return Number.isInteger(n) && n >= 1 && n <= 31 ? { ok: true, value: n } : { ok: false };
-}
-function updateNbHint() {
-  const p = parseInstallments($('nb-total').value);
-  const h = $('nb-hint');
-  if (p.ok && p.value) {
-    h.textContent = `Última parcela em ${monthShort(indexToYm(ymToIndex(ym) + p.value - 1))}.`;
-    h.hidden = false;
-  } else h.hidden = true;
-}
-
-async function addBill() {
-  if (busy.bill) return;
-  const name = $('nb-name').value.trim().replace(/\s+/g, ' '), amount = num($('nb-amt').value);
-  if (!name || !validAmt(amount)) return toast('Informe o nome e o valor da conta.', { err: 1 });
-  const pTotal = parseInstallments($('nb-total').value);
-  if (!pTotal.ok) return toast('Número de parcelas inválido.', { err: 1 });
-  const pDue = parseDueDay($('nb-due').value);
-  if (!pDue.ok) return toast('Dia de vencimento inválido (use de 1 a 31).', { err: 1 });
-
-  busy.bill = true; $('nb-btn').disabled = true;
-  try {
-    const exists = bills.find((b) => norm(b.name) === norm(name));
-    if (exists && billStatus(exists, ym).finished) {
-      const go = await askConfirm('Essa dívida já foi quitada',
-        `"${exists.name}" foi paga em ${exists.installments_total}x de ${brl(exists.amount)}. Começar um novo parcelamento agora?`, 'Começar de novo');
-      if (!go) return;
-      const { error } = await sb.from('fixed_bills').update({
-        amount, active: true, start_month: ym + '-01', installments_total: pTotal.value, due_day: pDue.value,
-      }).eq('id', exists.id);
-      if (error) throw error;
-      toast(pTotal.value ? `Novo parcelamento iniciado: ${pTotal.value}x.` : 'Conta reativada.');
-    } else if (exists) {
-      const go = await askConfirm('Essa conta já existe',
-        `"${exists.name}" está cadastrada com ${brl(exists.amount)}. Atualizar para ${brl(amount)}?`, 'Atualizar valor');
-      if (!go) return;
-      const { error } = await sb.from('fixed_bills').update({ amount, active: true }).eq('id', exists.id);
-      if (error) throw error;
-      toast('Conta atualizada.');
+// Envia vários blocos respeitando o limite de 4096 caracteres do Telegram
+async function sendBlocks(chatId, blocks) {
+  const LIMIT = 3800;
+  let cur = '';
+  const flush = async () => {
+    if (cur.trim()) await bot.sendMessage(chatId, cur, html);
+    cur = '';
+  };
+  for (const block of blocks) {
+    if (block.length <= LIMIT) {
+      if (cur && cur.length + 2 + block.length > LIMIT) await flush();
+      cur += (cur ? '\n\n' : '') + block;
     } else {
-      const { error } = await sb.from('fixed_bills').insert({
-        name, amount, start_month: ym + '-01', installments_total: pTotal.value, due_day: pDue.value,
-      });
-      if (error) throw error;
-      toast(pTotal.value ? `Parcelamento criado: ${pTotal.value}x de ${brl(amount)}.` : 'Conta adicionada.');
+      await flush();
+      for (const line of block.split('\n')) {
+        if (cur && cur.length + 1 + line.length > LIMIT) await flush();
+        cur += (cur ? '\n' : '') + line;
+      }
     }
-    $('nb-name').value = ''; $('nb-amt').value = ''; $('nb-total').value = ''; $('nb-due').value = '';
-    $('nb-hint').hidden = true;
-    await loadAll();
-  } catch (err) {
-    toast(err.code === '23505' ? 'Essa conta já existe. Atualize a página e edite o valor.' : friendly(err), { err: 1 });
-  } finally {
-    busy.bill = false; $('nb-btn').disabled = false;
   }
+  await flush();
 }
 
-function redoBill(id) {
-  const b = bills.find((x) => x.id === id);
-  if (!b) return;
-  $('nb-name').value = b.name;
-  $('nb-amt').value = Number(b.amount).toFixed(2).replace('.', ',');
-  $('nb-total').value = ''; $('nb-due').value = b.due_day || '';
-  $('nb-hint').hidden = true;
-  $('nb-total').focus();
-  $('nb-name').closest('.card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  toast('Preencha as parcelas (se houver) e clique em Adicionar para reativar.');
+/* ============================================================
+   BANCO + ANTI-DUPLICIDADE
+   ============================================================
+
+   Três camadas protegem contra lançamentos repetidos:
+   1. client_id único: cada mensagem/toque tem uma chave (o banco recusa repetição).
+      Cobre reentrega do Telegram, reinício do bot e toques duplos.
+   2. Checagem de "parece duplicada": mesmo tipo + valor + categoria nos últimos
+      3 minutos → o bot pergunta antes de gravar.
+   3. Botão "Desfazer" em toda confirmação e o comando /desfazer.
+*/
+
+async function findByClientId(clientId) {
+  const { data, error } = await sb.from('transactions').select('id').eq('client_id', clientId).limit(1);
+  if (error) throw error;
+  return data && data[0] ? data[0] : null;
 }
 
-/* ---------- detalhes de conta fixa: parcelas, início, vencimento ---------- */
-let bdEditId = null;
-function openBillDetails(id) {
-  const b = bills.find((x) => x.id === id);
-  if (!b) return;
-  bdEditId = id;
-  $('bd-name').textContent = b.name;
-  $('bd-amt').value = Number(b.amount).toFixed(2).replace('.', ',');
-  $('bd-total').value = b.installments_total || '';
-  $('bd-start').value = b.start_month.slice(0, 7);
-  $('bd-due').value = b.due_day || '';
-  updateBillHint();
-  $('bdlg').showModal();
-}
-function updateBillHint() {
-  const p = parseInstallments($('bd-total').value);
-  const start = $('bd-start').value;
-  $('bd-hint').textContent = (p.ok && p.value && start)
-    ? `Última parcela em ${monthShort(indexToYm(ymToIndex(start) + p.value - 1))}.`
-    : 'Sem número de parcelas: a conta se repete todo mês, até você excluir ou pausar.';
-}
-async function saveBillDetails(e) {
-  e.preventDefault();
-  if (!bdEditId) return;
-  const amount = num($('bd-amt').value);
-  if (!validAmt(amount)) return toast('Informe um valor válido.', { err: 1 });
-  const pTotal = parseInstallments($('bd-total').value);
-  if (!pTotal.ok) return toast('Número de parcelas inválido.', { err: 1 });
-  const start = $('bd-start').value;
-  if (!start) return toast('Informe o mês de início.', { err: 1 });
-  const pDue = parseDueDay($('bd-due').value);
-  if (!pDue.ok) return toast('Dia de vencimento inválido (use de 1 a 31).', { err: 1 });
-
-  const { error } = await sb.from('fixed_bills').update({
-    amount, installments_total: pTotal.value, start_month: start + '-01', due_day: pDue.value,
-  }).eq('id', bdEditId);
-  if (error) return toast(friendly(error), { err: 1 });
-  $('bdlg').close(); toast('Detalhes salvos.'); loadAll();
+async function findRecentSimilar({ type, amount, category }) {
+  const since = new Date(Date.now() - DUP_WINDOW_MS).toISOString();
+  let q = sb.from('transactions').select('id').eq('type', type).eq('amount', amount).gte('created_at', since).limit(1);
+  q = category ? q.eq('category', category) : q.is('category', null);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data && data[0] ? data[0] : null;
 }
 
-/* ---------- salário e exportação ---------- */
-function openSalary() { $('d-sal').value = salary.toFixed(2).replace('.', ','); $('dlg').showModal(); }
-async function saveSalary(e) {
-  e.preventDefault();
-  const n = num($('d-sal').value);
-  if (!(n >= 0) || n >= 1e8) return toast('Informe um valor válido.', { err: 1 });
-  const { error } = await sb.from('settings').upsert({ id: 1, salary: n, updated_at: new Date().toISOString() });
-  if (error) return toast(friendly(error), { err: 1 });
-  $('dlg').close(); toast('Salário atualizado.'); loadAll();
-}
-function exportCsv() {
-  const rows = [['data', 'tipo', 'categoria', 'descricao', 'valor', 'origem'],
-    ...tx.map((x) => [x.occurred_on, x.type, x.category || '', x.description || '', Number(x.amount).toFixed(2).replace('.', ','), x.source || ''])];
-  // protege contra "injeção de fórmula" quando aberto no Excel
-  const safe = (v) => { v = String(v); return /^[=+\-@]/.test(v) && !/^-?[\d.,]+$/.test(v) ? "'" + v : v; };
-  const csv = rows.map((r) => r.map((v) => '"' + safe(v).replace(/"/g, '""') + '"').join(';')).join('\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' }));
-  a.download = `financeiro-${ym}.csv`; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+// Retorna { status: 'saved', id } | { status: 'duplicate' } | { status: 'similar' }
+async function commit(entry, { clientId, force = false }) {
+  if (clientId && (await findByClientId(clientId))) return { status: 'duplicate' };
+  if (!force && (await findRecentSimilar(entry))) return { status: 'similar' };
+
+  const { data, error } = await sb.from('transactions').insert({
+    type: entry.type,
+    amount: entry.amount,
+    category: entry.category || null,
+    description: entry.description || null,
+    occurred_on: todayISO(),
+    source: 'telegram',
+    client_id: clientId || null,
+  }).select('id').single();
+
+  if (error) {
+    if (error.code === '23505') return { status: 'duplicate' }; // outra cópia chegou junto
+    throw error;
+  }
+  return { status: 'saved', id: data && data.id };
 }
 
-/* ---------- login (opcional) ---------- */
-async function doLogin(e) {
-  e.preventDefault();
-  const btn = $('l-btn'); btn.disabled = true; $('l-err').textContent = '';
-  const { error } = await sb.auth.signInWithPassword({ email: $('l-email').value.trim(), password: $('l-pass').value });
-  btn.disabled = false;
-  if (error) { $('l-err').textContent = 'E-mail ou senha incorretos.'; return; }
-  $('login').hidden = true; $('logout').hidden = false;
-  start();
-}
-async function doLogout() { await sb.auth.signOut(); location.reload(); }
+// Categorias para os botões: as padrão + as que você já usou nesse tipo (mais usadas primeiro)
+async function categoryOptions(type) {
+  const defaults = TYPES[type].defaults;
+  const { data, error } = await sb
+    .from('transactions')
+    .select('category')
+    .eq('type', type)
+    .not('category', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) throw error;
 
-/* ---------- tempo real (site + bot) ---------- */
-function subscribe() {
-  sb.channel('financas-sync')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleRefresh)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'fixed_bills' }, scheduleRefresh)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, scheduleRefresh)
-    .subscribe((s) => {
-      const on = s === 'SUBSCRIBED';
-      $('dot').className = on ? 'on' : '';
-      $('sync').textContent = on ? 'Ao vivo · site e bot' : 'Reconectando…';
-      if (on && wasDown) scheduleRefresh(); // recupera o que aconteceu enquanto estava offline
-      if (!on) wasDown = true;
-    });
-  // ao voltar para a aba (ex.: celular), busca de novo
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleRefresh(); });
-  window.addEventListener('online', scheduleRefresh);
+  const used = new Map(); // chave -> { name, count }
+  for (const row of data || []) {
+    const name = (row.category || '').trim();
+    if (!name) continue;
+    const key = normKey(name);
+    const cur = used.get(key) || { name, count: 0 };
+    cur.count += 1;
+    used.set(key, cur);
+  }
+
+  const all = [];
+  const seen = new Set();
+  // Se a categoria padrão já existe no histórico, mantém a grafia do histórico (evita duplicar no site)
+  for (const d of defaults) {
+    const key = normKey(d);
+    all.push(used.has(key) ? used.get(key).name : d);
+    seen.add(key);
+  }
+  const extras = [...used.entries()].filter(([k]) => !seen.has(k)).sort((a, b) => b[1].count - a[1].count);
+  for (const [, v] of extras) all.push(v.name);
+
+  return { buttons: all.slice(0, MAX_BUTTONS), all };
 }
 
-let started = false;
-function start() {
-  if (started) return;
-  started = true;
-  setDate(); subscribe(); loadAll();
+function canonicalCategory(name, all) {
+  const clean = name.trim().replace(/\s+/g, ' ').slice(0, 40);
+  if (!clean) return null;
+  const found = all.find((c) => normKey(c) === normKey(clean));
+  return found || cap(clean);
 }
 
-async function boot() {
-  if (!window.supabase) {
-    setBanner('Não foi possível carregar a biblioteca do Supabase. Verifique sua internet e recarregue a página.');
+/* ============================================================
+   FLUXO DE REGISTRO COM BOTÕES
+   ============================================================ */
+
+const pending = new Map();        // token -> { kind: 'cat' | 'dup', chatId, ..., createdAt }
+const awaitingCustom = new Map(); // chatId -> token
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, p] of pending) if (now - p.createdAt > PENDING_TTL) pending.delete(token);
+}, 60 * 1000).unref();
+
+function confirmText({ type, amount, category, description }) {
+  let t = `✅ ${TYPES[type].label} de <b>${brl(amount)}</b> registrada.`;
+  if (category) t += `\n🏷️ ${esc(cap(category))}`;
+  if (description) t += `\n📝 ${esc(description)}`;
+  return t;
+}
+
+const undoMarkup = (id) => ({ reply_markup: { inline_keyboard: [[{ text: '↩️ Desfazer', callback_data: `undo:${id}` }]] } });
+
+function categoryKeyboard(token, buttons) {
+  const rows = [];
+  let row = [];
+  buttons.forEach((c, i) => {
+    row.push({ text: `${emojiFor(c)} ${cap(c)}`, callback_data: `cat:${token}:${i}` });
+    if (row.length === 2) { rows.push(row); row = []; }
+  });
+  if (row.length) rows.push(row);
+  rows.push([{ text: '✏️ Outra (digitar)', callback_data: `cat:${token}:new` }]);
+  rows.push([
+    { text: 'Sem categoria', callback_data: `cat:${token}:none` },
+    { text: '❌ Cancelar', callback_data: `cat:${token}:cancel` },
+  ]);
+  return { inline_keyboard: rows };
+}
+
+// Grava com proteção e responde. `reply(texto, extra)` envia nova mensagem ou edita a existente.
+async function finalize(entry, clientId, reply, { force = false, skipSalaryCheck = false } = {}) {
+  // Entrada/Acréscimo com cara de "salário" → confirma antes de gravar, porque
+  // provavelmente o certo é usar o campo fixo (/salario), não um lançamento avulso.
+  if (!skipSalaryCheck && (entry.type === 'entrada' || entry.type === 'acrescimo') && looksLikeSalary(entry.category, entry.description)) {
+    const token = newToken();
+    pending.set(token, { kind: 'sal', entry, clientId, createdAt: Date.now() });
+    return reply(
+      `🤔 Isso parece ser o <b>salário</b>.\n\n` +
+      `O campo <b>Salário</b> é fixo: você define uma vez (ou usa /salario) e ele entra <b>todo mês sozinho</b>, sem precisar lançar de novo. Já uma ${TYPES[entry.type].label.toLowerCase()} conta só neste mês, como um extra avulso.\n\n` +
+      `Se <b>${brl(entry.amount)}</b> é o seu salário mensal (não um extra), o certo é ajustar o valor fixo — assim você evita lançar duas vezes por engano.`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '💼 Definir como salário fixo', callback_data: `sal:${token}:edit` }],
+            [{ text: '✅ Não, é um lançamento avulso mesmo', callback_data: `sal:${token}:yes` }],
+          ],
+        },
+      }
+    );
+  }
+
+  const r = await commit(entry, { clientId, force });
+
+  if (r.status === 'saved') {
+    return reply(confirmText(entry), r.id ? undoMarkup(r.id) : {});
+  }
+  if (r.status === 'duplicate') {
+    return reply('ℹ️ Esse lançamento já estava registrado — não dupliquei.');
+  }
+  // similar: pergunta antes de gravar
+  const token = newToken();
+  pending.set(token, { kind: 'dup', entry, createdAt: Date.now() });
+  const desc = `${TYPES[entry.type].emoji} ${TYPES[entry.type].label} de <b>${brl(entry.amount)}</b>` +
+    (entry.category ? ` · ${esc(cap(entry.category))}` : '');
+  return reply(
+    `⚠️ <b>Parece duplicada.</b>\nJá registrei ${desc} nos últimos 3 minutos.\n\nRegistrar mesmo assim?`,
+    {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '✅ Sim, registrar', callback_data: `dup:${token}:yes` },
+          { text: '❌ Não', callback_data: `dup:${token}:no` },
+        ]],
+      },
+    }
+  );
+}
+
+async function handleRegister(msg, type, args) {
+  const chatId = msg.chat.id;
+  const cfg = TYPES[type];
+  const tokens = (args || '').trim().split(/\s+/).filter(Boolean);
+  if (tokens.length && /^r\$$/i.test(tokens[0])) tokens.shift();
+
+  const amount = parseAmount(tokens[0]);
+  if (!validAmount(amount)) {
+    await bot.sendMessage(chatId, `Não entendi o valor. Exemplo: /${type} 45,90`);
     return;
   }
-  sb = supabase.createClient(CFG.url, CFG.key);
-  if (REQUIRE_LOGIN) {
-    const { data } = await sb.auth.getSession();
-    if (!data.session) { $('login').hidden = false; return; }
-    $('logout').hidden = false;
+  const rest = tokens.slice(1);
+  const clientId = `msg:${chatId}:${msg.message_id}`; // mesma mensagem nunca grava duas vezes
+  const reply = (text, extra = {}) => bot.sendMessage(chatId, text, { ...html, ...extra });
+
+  // Retirada: sem categoria, grava direto
+  if (!cfg.askCategory) {
+    await finalize({ type, amount, category: null, description: rest.join(' ') || null }, clientId, reply);
+    return;
   }
-  start();
+
+  const { buttons, all } = await categoryOptions(type);
+
+  // Atalho: se a 1ª palavra depois do valor já é uma categoria conhecida, grava direto
+  if (rest.length) {
+    const match = all.find((c) => normKey(c) === normKey(rest[0]));
+    if (match) {
+      await finalize({ type, amount, category: match, description: rest.slice(1).join(' ') || null }, clientId, reply);
+      return;
+    }
+  }
+
+  const description = rest.join(' ') || null;
+  const token = newToken();
+  pending.set(token, { kind: 'cat', chatId, type, amount, description, buttons, all, createdAt: Date.now() });
+
+  let text = `${cfg.emoji} ${cfg.label} de <b>${brl(amount)}</b>`;
+  if (description) text += `\n📝 ${esc(description)}`;
+  text += '\n\nEscolha a categoria:';
+  await bot.sendMessage(chatId, text, { ...html, reply_markup: categoryKeyboard(token, buttons) });
 }
-boot();
-</script>
-</body>
-</html>
+
+bot.on('callback_query', async (q) => {
+  const chatId = q.message && q.message.chat.id;
+  const answer = (opts) => bot.answerCallbackQuery(q.id, opts).catch(() => {});
+  try {
+    const [kind, a, b] = String(q.data || '').split(':');
+    if (!chatId || !['cat', 'dup', 'sal', 'undo'].includes(kind)) return answer();
+    if (!authorized(chatId)) return answer({ text: 'Acesso não autorizado.', show_alert: true });
+
+    const ref = { chat_id: chatId, message_id: q.message.message_id, parse_mode: 'HTML' };
+    const edit = (text, extra = {}) => bot.editMessageText(text, { ...ref, ...extra });
+
+    /* ---- desfazer ---- */
+    if (kind === 'undo') {
+      if (a === 'keep') {
+        await answer();
+        await edit('👍 Mantida.');
+        return;
+      }
+      const { data: rows, error } = await sb.from('transactions').delete().eq('id', a).select('type, amount, category');
+      if (error) throw error;
+      if (!rows || !rows.length) {
+        await answer({ text: 'Já tinha sido removido.' });
+        await edit('ℹ️ Esse lançamento já tinha sido removido.');
+        return;
+      }
+      const t = rows[0];
+      await answer({ text: 'Desfeito.' });
+      await edit(`🗑️ Desfeito: ${TYPES[t.type].label} de <b>${brl(t.amount)}</b>${t.category ? ' · ' + esc(cap(t.category)) : ''}`);
+      return;
+    }
+
+    const p = pending.get(a);
+    const valid = p && p.kind === kind && (kind === 'dup' || kind === 'sal' || p.chatId === chatId);
+    if (!valid) {
+      await answer({ text: 'Essa seleção expirou. Envie o comando de novo.', show_alert: true });
+      await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: q.message.message_id }).catch(() => {});
+      return;
+    }
+
+    /* ---- "parece salário": usar o campo fixo ou lançar mesmo assim ---- */
+    if (kind === 'sal') {
+      pending.delete(a); // um toque só
+      if (b === 'edit') {
+        const { error } = await sb.from('settings').update({ salary: p.entry.amount, updated_at: new Date().toISOString() }).eq('id', 1);
+        if (error) throw error;
+        await answer({ text: 'Salário atualizado.' });
+        await edit(`💼 Salário fixo definido para <b>${brl(p.entry.amount)}</b>.\nA partir de agora ele entra sozinho todo mês — não precisa lançar de novo (nada foi registrado como ${TYPES[p.entry.type].label.toLowerCase()}).`);
+        return;
+      }
+      await answer({ text: 'Registrando…' });
+      await finalize(p.entry, p.clientId, edit, { skipSalaryCheck: true });
+      return;
+    }
+
+    /* ---- "parece duplicada": confirmar ou não ---- */
+    if (kind === 'dup') {
+      pending.delete(a); // um toque só
+      if (b !== 'yes') {
+        await answer();
+        await edit('❌ Não registrei.');
+        return;
+      }
+      await answer({ text: 'Registrando…' });
+      await finalize(p.entry, `cb:${a}`, edit, { force: true });
+      return;
+    }
+
+    /* ---- escolha de categoria ---- */
+    if (b === 'cancel') {
+      pending.delete(a);
+      awaitingCustom.delete(chatId);
+      await answer();
+      await edit('❌ Cancelado.');
+      return;
+    }
+
+    if (b === 'new') {
+      awaitingCustom.set(chatId, a);
+      await answer();
+      await edit(`✏️ ${TYPES[p.type].label} de <b>${brl(p.amount)}</b>\n\nDigite o nome da nova categoria (ou /cancelar):`);
+      return;
+    }
+
+    let category = null;
+    if (b !== 'none') {
+      category = p.buttons[Number(b)];
+      if (!category) return answer();
+    }
+
+    pending.delete(a); // evita registrar duas vezes se tocar 2x
+    awaitingCustom.delete(chatId);
+    await answer({ text: 'Registrando…' });
+    await finalize({ type: p.type, amount: p.amount, category, description: p.description }, `cb:${a}`, edit);
+  } catch (e) {
+    console.error(e);
+    answer({ text: 'Erro. Tente de novo.', show_alert: true });
+    if (chatId) bot.sendMessage(chatId, '⚠️ Não consegui registrar: ' + (e.message || e)).catch(() => {});
+  }
+});
+
+// Texto digitado depois de "✏️ Outra (digitar)" vira a nova categoria.
+// Mensagem que começa com número (ex.: "45,90 mercado") vira uma compra.
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  if (!msg.text || !authorized(chatId)) return;
+
+  if (msg.text.startsWith('/')) {
+    awaitingCustom.delete(chatId); // qualquer comando cancela a digitação
+    return;
+  }
+
+  try {
+    const token = awaitingCustom.get(chatId);
+    if (token) {
+      awaitingCustom.delete(chatId);
+      const p = pending.get(token);
+      if (!p || p.kind !== 'cat') {
+        await bot.sendMessage(chatId, 'Essa seleção expirou. Envie o comando de novo.');
+        return;
+      }
+      const category = canonicalCategory(msg.text, p.all);
+      if (!category) {
+        await bot.sendMessage(chatId, 'Categoria vazia. Envie o comando de novo.');
+        return;
+      }
+      pending.delete(token);
+      const reply = (text, extra = {}) => bot.sendMessage(chatId, text, { ...html, ...extra });
+      await finalize({ type: p.type, amount: p.amount, category, description: p.description }, `cb:${token}`, reply);
+      return;
+    }
+
+    if (/^\s*(?:r\$\s*)?\d/i.test(msg.text)) {
+      await handleRegister(msg, 'compra', msg.text);
+    }
+  } catch (e) {
+    console.error(e);
+    bot.sendMessage(chatId, '⚠️ Erro ao salvar: ' + (e.message || e));
+  }
+});
+
+/* ============================================================
+   COMANDOS
+   ============================================================ */
+
+const HELP = `👋 <b>Comandos</b>
+
+<b>Registrar</b>
+/compra 45,90 — você escolhe a categoria nos botões
+/entrada 300 — idem
+/acrescimo 150 — idem
+/retirada 100 caixa eletrônico
+
+💡 <b>Atalhos</b>
+• Já sabe a categoria? /compra 45,90 mercado feira
+• Mande só <code>45,90 mercado</code> e vira uma compra
+• Errou? Toque em ↩️ Desfazer na confirmação, ou use /desfazer
+
+<b>Consultar</b>
+/resumo — resumo do mês (ou /resumo anterior, /resumo 08/2026)
+/extrato — últimas 10 movimentações
+/contas — contas fixas
+/salario — ver ou alterar o salário <i>(fixo: entra todo mês sozinho — não é uma Entrada avulsa)</i>
+
+<b>Configurar</b>
+/conta Netflix 39,90 — cria ou atualiza uma conta fixa
+/conta Celular 418 12x — parcelada em 12x (some sozinha ao quitar)
+/conta Aluguel 900 dia5 — com dia de vencimento
+/salario 2800 — altera o salário
+
+/cancelar — cancela uma digitação em andamento
+/id — mostra o seu chat id`;
+
+bot.onText(/^\/(start|ajuda|help)(?:@\w+)?\s*$/, guarded((msg) => bot.sendMessage(msg.chat.id, HELP, html)));
+
+bot.onText(/^\/id(?:@\w+)?\s*$/, (msg) => {
+  bot.sendMessage(msg.chat.id, `Seu chat id: <code>${msg.chat.id}</code>`, html);
+});
+
+bot.onText(/^\/cancelar(?:@\w+)?\s*$/, guarded(async (msg) => {
+  awaitingCustom.delete(msg.chat.id);
+  await bot.sendMessage(msg.chat.id, '❌ Cancelado.');
+}));
+
+for (const type of Object.keys(TYPES)) {
+  bot.onText(cmd(type), guarded((msg, match) => {
+    if (!match[1] || !match[1].trim()) {
+      return bot.sendMessage(msg.chat.id, `Informe o valor. Exemplo: /${type} 45,90`);
+    }
+    return handleRegister(msg, type, match[1]);
+  }));
+}
+
+/* ---------- /desfazer ---------- */
+
+bot.onText(cmd('desfazer'), guarded(async (msg) => {
+  const { data, error } = await sb.from('transactions').select('*').order('created_at', { ascending: false }).limit(1);
+  if (error) throw error;
+  const t = data && data[0];
+  if (!t) {
+    await bot.sendMessage(msg.chat.id, 'Não há nenhuma movimentação para desfazer.');
+    return;
+  }
+  const cfg = TYPES[t.type];
+  const extra = [t.category ? cap(t.category) : null, t.description].filter(Boolean).map(esc).join(' — ');
+  await bot.sendMessage(
+    msg.chat.id,
+    `Excluir a última movimentação?\n\n${fmtDay(t.occurred_on)} · ${cfg.emoji} ${cfg.label} · <b>${brl(t.amount)}</b>${extra ? '\n' + extra : ''}`,
+    {
+      ...html,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '🗑️ Excluir', callback_data: `undo:${t.id}` },
+          { text: 'Manter', callback_data: 'undo:keep' },
+        ]],
+      },
+    }
+  );
+}));
+
+/* ---------- /resumo (e /saldo) ---------- */
+
+function txLine(t) {
+  const bits = [];
+  if (t.category) bits.push(esc(cap(t.category)));
+  if (t.description) bits.push(esc(t.description));
+  const label = bits.length ? bits.join(' — ') : 'Sem descrição';
+  return `• ${fmtDay(t.occurred_on)} · ${label} · <b>${brl(t.amount)}</b>`;
+}
+
+function categoryTotals(list) {
+  const map = new Map();
+  for (const t of list) {
+    const key = t.category ? normKey(t.category) : '';
+    const cur = map.get(key) || { name: t.category ? cap(t.category) : 'Sem categoria', total: 0 };
+    cur.total += Number(t.amount);
+    map.set(key, cur);
+  }
+  return [...map.values()].sort((a, b) => b.total - a.total);
+}
+
+function txSection(title, emoji, list, withCategories) {
+  const lines = [`${emoji} <b>${title}</b>`];
+  if (!list.length) {
+    lines.push('— nenhum lançamento —');
+  } else {
+    list.forEach((t) => lines.push(txLine(t)));
+    if (withCategories) {
+      lines.push('');
+      lines.push('<i>Por categoria:</i>');
+      categoryTotals(list).forEach((c) => lines.push(`   ↳ ${esc(c.name)}: ${brl(c.total)}`));
+    }
+  }
+  lines.push(`Total: <b>${brl(sumOf(list))}</b>`);
+  return lines.join('\n');
+}
+
+async function sendSummary(chatId, monthArg) {
+  const bounds = monthBounds(monthArg);
+  if (!bounds) {
+    await bot.sendMessage(chatId, 'Não entendi o mês. Exemplos: /resumo, /resumo anterior, /resumo 08/2026');
+    return;
+  }
+  const { start, end, label, ym } = bounds;
+  const [s, b, t] = await Promise.all([
+    sb.from('settings').select('salary').eq('id', 1).single(),
+    sb.from('fixed_bills').select('*'),
+    sb.from('transactions').select('type, category, description, amount, occurred_on, created_at')
+      .gte('occurred_on', start).lte('occurred_on', end)
+      .order('occurred_on', { ascending: true }).order('created_at', { ascending: true }),
+  ]);
+  const err = s.error || b.error || t.error;
+  if (err) throw err;
+
+  const salary = s.data ? Number(s.data.salary) : 0;
+  const billRows = (b.data || [])
+    .map((x) => ({ b: x, st: billStatus(x, ym) }))
+    .filter((r) => r.b.active && r.st.started && !r.st.finished)
+    .sort((x, y) => (x.b.due_day ?? 99) - (y.b.due_day ?? 99) || x.b.name.localeCompare(y.b.name, 'pt-BR'));
+  const bills = billRows.map((r) => r.b);
+  const txs = t.data || [];
+  const by = (type) => txs.filter((x) => x.type === type);
+  const entradas = by('entrada'), acrescimos = by('acrescimo'), compras = by('compra'), retiradas = by('retirada');
+
+  const totalBills = sumOf(bills);
+  const totEntradas = sumOf(entradas), totAcrescimos = sumOf(acrescimos);
+  const totCompras = sumOf(compras), totRetiradas = sumOf(retiradas);
+  const saldo = salary + totEntradas + totAcrescimos - totCompras - totRetiradas - totalBills;
+
+  const billsLines = [`📌 <b>CONTAS FIXAS</b>`];
+  if (!billRows.length) billsLines.push('— nenhuma conta fixa —');
+  else billRows.forEach((r) => billsLines.push(billLine(r.b, r.st)));
+  billsLines.push(`Total: <b>${brl(totalBills)}</b>`);
+
+  const closing = [
+    `🧮 <b>FECHAMENTO</b>`,
+    `Salário: + ${brl(salary)}`,
+    `Entradas: + ${brl(totEntradas)}`,
+    `Acréscimos: + ${brl(totAcrescimos)}`,
+    `Contas fixas: − ${brl(totalBills)}`,
+    `Compras: − ${brl(totCompras)}`,
+    `Retiradas: − ${brl(totRetiradas)}`,
+    `━━━━━━━━━━━━━━`,
+    `💰 <b>Restante: ${brl(saldo)}</b>`,
+  ];
+  if (saldo < 0) closing.push('⚠️ Você está no negativo neste mês.');
+
+  await sendBlocks(chatId, [
+    `📊 <b>RESUMO DE ${label}</b>`,
+    `💼 <b>SALÁRIO</b> <i>(fixo, todo mês)</i>\n<b>${brl(salary)}</b>`,
+    billsLines.join('\n'),
+    txSection('ENTRADAS', '📥', entradas, false),
+    txSection('ACRÉSCIMOS', '➕', acrescimos, false),
+    txSection('COMPRAS', '🛒', compras, true),
+    txSection('RETIRADAS', '💵', retiradas, false),
+    closing.join('\n'),
+  ]);
+}
+
+bot.onText(cmd('resumo|saldo'), guarded((msg, match) => sendSummary(msg.chat.id, match[1])));
+
+/* ---------- /extrato ---------- */
+
+bot.onText(cmd('extrato'), guarded(async (msg) => {
+  const { data: txs, error } = await sb.from('transactions').select('*')
+    .order('created_at', { ascending: false }).limit(10);
+  if (error) throw error;
+  if (!txs || !txs.length) {
+    await bot.sendMessage(msg.chat.id, 'Nenhuma movimentação ainda.');
+    return;
+  }
+  const lines = txs.map((t) => {
+    const cfg = TYPES[t.type] || { emoji: '•', label: t.type };
+    const sign = t.type === 'entrada' || t.type === 'acrescimo' ? '+' : '−';
+    const extra = [t.category ? cap(t.category) : null, t.description].filter(Boolean).map(esc).join(' — ');
+    return `${fmtDay(t.occurred_on)} · ${cfg.emoji} ${cfg.label} · <b>${sign} ${brl(t.amount)}</b>${extra ? '\n      ' + extra : ''}`;
+  });
+  await sendBlocks(msg.chat.id, ['🧾 <b>ÚLTIMAS MOVIMENTAÇÕES</b>\n' + lines.join('\n')]);
+}));
+
+/* ---------- /contas e /conta ---------- */
+
+bot.onText(cmd('contas'), guarded(async (msg) => {
+  const { data: all, error } = await sb.from('fixed_bills').select('*')
+    .order('created_at', { ascending: true }).order('name', { ascending: true });
+  if (error) throw error;
+  const ym = currentYm();
+  const rows = (all || []).map((b) => ({ b, st: billStatus(b, ym) }));
+  const active = rows.filter((r) => r.b.active && r.st.started && !r.st.finished);
+  const upcoming = rows.filter((r) => r.b.active && !r.st.started);
+  if (!active.length && !upcoming.length) {
+    await bot.sendMessage(msg.chat.id,
+      'Nenhuma conta fixa ativa.\nUse /conta Nome 50,00 para criar (ou "12x" para parcelar, "dia10" para vencimento).');
+    return;
+  }
+  active.sort((a, z) => (a.b.due_day ?? 99) - (z.b.due_day ?? 99) || a.b.name.localeCompare(z.b.name, 'pt-BR'));
+  let text = `📌 <b>CONTAS FIXAS</b>\n${active.map((r) => billLine(r.b, r.st)).join('\n') || '— nenhuma conta ativa —'}\n\nTotal: <b>${brl(sumOf(active.map((r) => r.b)))}</b>`;
+  if (upcoming.length) {
+    text += `\n\n🔜 <i>Começam em breve:</i>\n` +
+      upcoming.map((r) => `• ${esc(r.b.name)}: ${brl(r.b.amount)} — a partir de ${indexToYmLabel(ymToIndex(String(r.b.start_month).slice(0, 7)))}`).join('\n');
+  }
+  await bot.sendMessage(msg.chat.id, text, html);
+}));
+
+// Cria a conta OU atualiza o valor se o nome já existir (nunca duplica).
+// Aceita parcelas ("12x") e dia de vencimento ("dia10") depois do valor, em qualquer ordem.
+bot.onText(cmd('conta'), guarded(async (msg, match) => {
+  const chatId = msg.chat.id;
+  const m = (match[1] || '').trim().match(/^(.+?)\s+(?:R\$\s*)?([\d.,]+)(?:\s+([\s\S]*))?$/i);
+  const amount = m ? parseAmount(m[2]) : NaN;
+  if (!m || !validAmount(amount)) {
+    await bot.sendMessage(chatId,
+      'Uso: /conta Nome valor [Nx] [diaD]\n\n' +
+      'Exemplos:\n• /conta Plano de crédito 30\n• /conta Celular 418 12x\n• /conta Netflix 39,90 dia10\n• /conta TV 200 10x dia5\n\n' +
+      'Se a conta já existir, você atualiza o valor (ou reinicia um parcelamento, se a anterior já tiver sido quitada).', html);
+    return;
+  }
+  const name = m[1].trim().replace(/\s+/g, ' ').slice(0, 60);
+  const extra = m[3] || '';
+  const mi = extra.match(/(\d{1,3})\s*x\b/i);
+  const md = extra.match(/dia\s*(\d{1,2})\b/i);
+  const installments_total = mi ? parseInt(mi[1], 10) : null;
+  const due_day = md ? parseInt(md[1], 10) : null;
+  if (installments_total != null && (installments_total < 1 || installments_total > 600)) {
+    await bot.sendMessage(chatId, 'Número de parcelas inválido.');
+    return;
+  }
+  if (due_day != null && (due_day < 1 || due_day > 31)) {
+    await bot.sendMessage(chatId, 'Dia de vencimento inválido (use de 1 a 31).');
+    return;
+  }
+
+  const ym = currentYm();
+  const { data: all, error } = await sb.from('fixed_bills').select('*');
+  if (error) throw error;
+  const found = (all || []).find((b) => normKey(b.name) === normKey(name));
+
+  if (found) {
+    const st = billStatus(found, ym);
+    if (st.finished) {
+      const { error: e2 } = await sb.from('fixed_bills').update({
+        amount, active: true, start_month: ym + '-01', installments_total, due_day,
+      }).eq('id', found.id);
+      if (e2) throw e2;
+      await bot.sendMessage(chatId,
+        `🔁 <b>${esc(found.name)}</b> estava quitada — novo parcelamento iniciado: <b>${brl(amount)}</b>` +
+        (installments_total ? ` em ${installments_total}x` : '') + '.', html);
+      return;
+    }
+    const patch = { amount, active: true };
+    if (mi) patch.installments_total = installments_total;
+    if (md) patch.due_day = due_day;
+    const { error: e2 } = await sb.from('fixed_bills').update(patch).eq('id', found.id);
+    if (e2) throw e2;
+    const same = Number(found.amount) === amount && found.active && !mi && !md;
+    await bot.sendMessage(chatId, same
+      ? `ℹ️ <b>${esc(found.name)}</b> já existe com esse valor (${brl(amount)}). Nada mudou.`
+      : `🔄 <b>${esc(found.name)}</b> atualizada: ${brl(found.amount)} → <b>${brl(amount)}</b>`, html);
+    return;
+  }
+
+  const { error: e3 } = await sb.from('fixed_bills').insert({ name, amount, start_month: ym + '-01', installments_total, due_day });
+  if (e3) {
+    if (e3.code === '23505') {
+      await bot.sendMessage(chatId, 'ℹ️ Essa conta já existe. Mande o comando de novo para atualizar o valor.');
+      return;
+    }
+    throw e3;
+  }
+  const extra2 = [installments_total ? `${installments_total}x` : null, due_day ? `vence dia ${due_day}` : null].filter(Boolean).join(', ');
+  await bot.sendMessage(chatId, `📌 Conta fixa <b>${esc(name)}</b> criada: <b>${brl(amount)}</b>/mês${extra2 ? ' · ' + extra2 : ''}.`, html);
+}));
+
+/* ---------- /salario ---------- */
+
+bot.onText(cmd('salario'), guarded(async (msg, match) => {
+  const chatId = msg.chat.id;
+  if (!match[1] || !match[1].trim()) {
+    const { data, error } = await sb.from('settings').select('salary').eq('id', 1).single();
+    if (error) throw error;
+    await bot.sendMessage(chatId, `💼 Salário atual: <b>${brl(data.salary)}</b>\nPara alterar: /salario 2800`, html);
+    return;
+  }
+  const amount = parseAmount(match[1].trim());
+  if (!Number.isFinite(amount) || amount < 0 || amount >= 100000000) {
+    await bot.sendMessage(chatId, 'Não entendi o valor. Exemplo: /salario 2800');
+    return;
+  }
+  const { error } = await sb.from('settings').update({ salary: amount, updated_at: new Date().toISOString() }).eq('id', 1);
+  if (error) throw error;
+  await bot.sendMessage(chatId, `💼 Salário atualizado para <b>${brl(amount)}</b>.`, html);
+}));
+
+/* ============================================================
+   INICIALIZAÇÃO
+   ============================================================ */
+
+bot.setMyCommands([
+  { command: 'compra', description: 'Registrar compra (escolhe a categoria)' },
+  { command: 'entrada', description: 'Registrar entrada' },
+  { command: 'acrescimo', description: 'Registrar acréscimo' },
+  { command: 'retirada', description: 'Registrar retirada' },
+  { command: 'desfazer', description: 'Excluir a última movimentação' },
+  { command: 'resumo', description: 'Resumo completo do mês' },
+  { command: 'extrato', description: 'Últimas 10 movimentações' },
+  { command: 'contas', description: 'Contas fixas' },
+  { command: 'conta', description: 'Criar/atualizar conta fixa' },
+  { command: 'salario', description: 'Ver ou alterar o salário' },
+  { command: 'ajuda', description: 'Lista de comandos' },
+]).catch((e) => console.error('setMyCommands:', e.message));
+
+// Servidor HTTP mínimo: o Render (web service gratuito) exige uma porta aberta
+// e só mantém o serviço acordado se receber requisições (use um pinger, veja o README).
+const PORT = process.env.PORT || 3000;
+const server = http
+  .createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Bot online ✅');
+  })
+  .listen(PORT, () => console.log(`Servidor HTTP na porta ${PORT}`));
+
+let warned409 = false;
+bot.on('polling_error', (e) => {
+  console.error('polling_error:', e.code || '', e.message);
+  if (!warned409 && /409/.test(String(e.message))) {
+    warned409 = true;
+    console.error('⚠️  Há OUTRA cópia do bot rodando com este mesmo token (outro deploy, seu PC, outro serviço). Desligue as extras para evitar respostas duplicadas.');
+  }
+});
+process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
+
+// Desliga limpo em deploys/reinícios (evita duas cópias respondendo ao mesmo tempo)
+let closing = false;
+function shutdown(signal) {
+  if (closing) return;
+  closing = true;
+  console.log(`${signal} recebido, encerrando…`);
+  server.close();
+  bot.stopPolling({ cancel: true }).catch(() => {}).finally(() => process.exit(0));
+  setTimeout(() => process.exit(0), 5000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+if (ALLOWED.length === 0) {
+  console.warn('⚠️  ALLOWED_CHAT_ID não definido: qualquer pessoa que achar o bot pode usá-lo. Mande /id ao bot e configure.');
+}
+console.log('Bot rodando (polling)...');
