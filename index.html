@@ -180,9 +180,13 @@ body.ready .fade-init{opacity:1;transform:none;transition:opacity .7s cubic-bezi
 /* =====================================================================
    GRID PRINCIPAL
 ===================================================================== */
-.content-grid{display:grid;gap:22px;grid-template-columns:1.5fr 1fr;align-items:start}
-.col-left,.col-right{display:flex;flex-direction:column;gap:22px;min-width:0}
-#led{scroll-margin-top:90px}#form{scroll-margin-top:90px}#catcard{scroll-margin-top:90px}#billcard{scroll-margin-top:90px}#hero{scroll-margin-top:90px}
+.content-grid{display:grid;gap:22px;align-items:start;
+  grid-template-columns:1.15fr .95fr .95fr;grid-template-areas:"led form side"}
+.col-side{display:flex;flex-direction:column;gap:22px;min-width:0}
+#led{grid-area:led;scroll-margin-top:90px}
+#form{grid-area:form;scroll-margin-top:90px}
+.col-side{grid-area:side}
+#catcard{scroll-margin-top:90px}#billcard{scroll-margin-top:90px}#hero{scroll-margin-top:90px}
 
 /* =====================================================================
    FORM / PILLS / CTA
@@ -306,8 +310,11 @@ dialog p{color:var(--mute);margin:0}
 /* =====================================================================
    RESPONSIVO
 ===================================================================== */
+@media(max-width:1480px){
+  .content-grid{grid-template-columns:1.3fr 1fr;grid-template-areas:"led form" "led side"}
+}
 @media(max-width:1180px){
-  .content-grid{grid-template-columns:1fr}
+  .content-grid{grid-template-columns:1fr;grid-template-areas:"form" "led" "side"}
   .stats-grid{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:960px){
@@ -414,32 +421,30 @@ dialog p{color:var(--mute);margin:0}
   </div>
 
   <div class="content-grid">
-    <div class="col-left">
-      <section class="card fade-init" id="led" style="--d:.12s">
-        <div class="row"><h2>Movimentações</h2><button class="link" onclick="exportCsv()">Exportar CSV</button></div>
-        <div class="tools">
-          <input id="q" type="search" placeholder="Buscar por categoria ou descrição" oninput="q=this.value;renderLedger()" aria-label="Buscar">
-        </div>
-        <div class="pills" id="filters"></div>
-        <div id="ledger"></div>
-      </section>
-    </div>
+    <section class="card fade-init" id="led" style="--d:.12s">
+      <div class="row"><h2>Movimentações</h2><button class="link" onclick="exportCsv()">Exportar CSV</button></div>
+      <div class="tools">
+        <input id="q" type="search" placeholder="Buscar por categoria ou descrição" oninput="q=this.value;renderLedger()" aria-label="Buscar">
+      </div>
+      <div class="pills" id="filters"></div>
+      <div id="ledger"></div>
+    </section>
 
-    <div class="col-right">
-      <form class="card fade-init" id="form" onsubmit="submitTx(event)" novalidate style="--d:.06s">
-        <h2>Nova movimentação</h2>
-        <div class="pills" id="types"></div>
-        <div class="g2 fld">
-          <div><label for="f-amount">Valor (R$)</label><input id="f-amount" inputmode="decimal" placeholder="0,00" autocomplete="off" required></div>
-          <div><label for="f-date">Data</label><input id="f-date" type="date"></div>
-        </div>
-        <div class="fld"><label for="f-cat">Categoria</label><input id="f-cat" list="cat-list" placeholder="Escolha abaixo ou digite outra" autocomplete="off" maxlength="40"></div>
-        <datalist id="cat-list"></datalist>
-        <div class="pills fld" id="chips"></div>
-        <div class="fld"><label for="f-desc">Descrição (opcional)</label><input id="f-desc" placeholder="Detalhes rápidos" autocomplete="off" maxlength="120"></div>
-        <button class="cta" type="submit" id="submit">Registrar</button>
-      </form>
+    <form class="card fade-init" id="form" onsubmit="submitTx(event)" novalidate style="--d:.06s">
+      <h2>Nova movimentação</h2>
+      <div class="pills" id="types"></div>
+      <div class="g2 fld">
+        <div><label for="f-amount">Valor (R$)</label><input id="f-amount" inputmode="decimal" placeholder="0,00" autocomplete="off" required></div>
+        <div><label for="f-date">Data</label><input id="f-date" type="date"></div>
+      </div>
+      <div class="fld"><label for="f-cat">Categoria</label><input id="f-cat" list="cat-list" placeholder="Escolha abaixo ou digite outra" autocomplete="off" maxlength="40"></div>
+      <datalist id="cat-list"></datalist>
+      <div class="pills fld" id="chips"></div>
+      <div class="fld"><label for="f-desc">Descrição (opcional)</label><input id="f-desc" placeholder="Detalhes rápidos" autocomplete="off" maxlength="120"></div>
+      <button class="cta" type="submit" id="submit">Registrar</button>
+    </form>
 
+    <div class="col-side">
       <section class="card fade-init" id="catcard" style="--d:.17s">
         <h2>Para onde foi o dinheiro</h2>
         <div id="cats"></div>
