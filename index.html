@@ -3,215 +3,349 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0D1020">
+<meta name="theme-color" content="#06070c">
 <title>Meu Financeiro</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E💰%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=Manrope:wght@500;600;700;800&family=Unbounded:wght@600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
+/* =====================================================================
+   TOKENS
+===================================================================== */
 :root{
-  --bg:#08080d;--panel:#15161f;--panel2:#1d1f2c;--line:#2b2d3d;--linefaint:#22232f;
-  --ink:#f2f0e7;--mute:#8b8ba3;--muted2:#5c5d72;
-  --pos:#34d399;--neg:#fb6f73;--warn:#ffc24b;--accent:#e7b93f;--accent-ink:#161104;--accent-shadow:#9c7a22;
-  --violet:var(--accent);--coral:var(--neg);--amber:var(--warn);--mint:var(--pos);
-  --radius:20px;color-scheme:dark
+  --bg:#06060b;--panel:#12131c;--panel2:#1a1c29;
+  --line:rgba(255,255,255,.09);--line-strong:rgba(255,255,255,.16);--linefaint:rgba(255,255,255,.06);
+  --ink:#f4f1e9;--mute:#9393ab;--muted2:#5f6079;
+  --pos:#34d399;--neg:#fb6f73;--warn:#ffc24b;--accent:#e7b93f;--accent-ink:#161104;--accent-shadow:#8a6a1c;
+  --accent2:#8a7bff;
+  --violet:var(--accent2);--coral:var(--neg);--amber:var(--warn);--mint:var(--pos);
+  --radius:24px;--radius-sm:14px;
+  --glass:linear-gradient(160deg,rgba(255,255,255,.06),rgba(255,255,255,.015));
+  --glass-strong:linear-gradient(160deg,rgba(255,255,255,.09),rgba(255,255,255,.02));
+  --shadow-card:0 30px 60px -32px rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.05) inset;
+  --shadow-pop:0 40px 90px -30px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.06) inset;
+  --sidebar-w:272px;
+  color-scheme:dark
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
-html{background:var(--bg)}
-body{margin:0;background:var(--bg);color:var(--ink);font:500 15px/1.5 Manrope,system-ui,sans-serif;font-variant-numeric:tabular-nums;padding:20px 16px 88px;position:relative;overflow-x:hidden}
-.wrap{max-width:1080px;margin:0 auto;position:relative;z-index:1}
+html{background:var(--bg);scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:500 15px/1.5 Manrope,system-ui,sans-serif;font-variant-numeric:tabular-nums;position:relative;-webkit-font-smoothing:antialiased}
 h1,h2,h3{font-family:Unbounded,sans-serif}
 .big,.num,.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
 button:disabled{cursor:progress;opacity:.55}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-input,select{font:inherit;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:11px 12px;width:100%;min-width:0;transition:border-color .15s}
-input:focus-visible,select:focus-visible{border-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+a{color:inherit;text-decoration:none}
+input,select{font:inherit;color:var(--ink);background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px;width:100%;min-width:0;transition:border-color .15s,background .15s,box-shadow .15s}
+input:focus-visible,select:focus-visible{border-color:var(--accent);background:rgba(255,255,255,.06);box-shadow:0 0 0 4px rgba(231,185,63,.12)}
 select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--mute) 50%),linear-gradient(135deg,var(--mute) 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px;background-repeat:no-repeat;padding-right:34px}
 input::placeholder{color:var(--muted2)}
 label{display:block;font-size:.8rem;color:var(--mute);margin:0 0 6px;font-weight:600}
 .pos{color:var(--pos)}.neg{color:var(--neg)}
-.violet{background:var(--accent)}.coral{background:var(--neg)}.amber{background:var(--warn)}.mint{background:var(--pos)}
+.violet{background:var(--violet)}.coral{background:var(--neg)}.amber{background:var(--warn)}.mint{background:var(--pos)}
 
-/* ---------- luz ambiente (decorativo, atrás de tudo) ---------- */
-.glow{position:fixed;width:62vmax;height:62vmax;border-radius:50%;filter:blur(100px);pointer-events:none;z-index:0;opacity:.14;will-change:transform}
-.glow.g1{background:var(--accent);top:-24vmax;left:-18vmax;animation:drift 24s ease-in-out infinite alternate}
-.glow.g2{background:var(--pos);bottom:-26vmax;right:-20vmax;animation:drift 29s ease-in-out infinite alternate-reverse}
-@keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(4vmax,3vmax) scale(1.1)}}
+/* thin premium scrollbars */
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:99px;border:2px solid transparent;background-clip:padding-box}
+*::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2);background-clip:padding-box}
 
-/* ---------- cabeçalho ---------- */
-.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:12px}
-.brand .mark{width:38px;height:38px;border-radius:11px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font:700 1.05rem Unbounded;flex:none}
-.brand b{font:700 1.02rem Unbounded;display:block;letter-spacing:-.01em}
-.brand small{color:var(--mute);font-size:.76rem}
-.months{display:flex;align-items:center;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px;perspective:500px}
-.months button{width:34px;height:34px;border-radius:50%;font-size:1.15rem;color:var(--mute);transition:background .15s,color .15s}
-.months button:hover{background:var(--panel2);color:var(--ink)}
+/* =====================================================================
+   AMBIENT LIGHT + GRAIN (decorativo)
+===================================================================== */
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(1100px 760px at 6% -8%,rgba(231,185,63,.12),transparent 60%),
+    radial-gradient(1000px 700px at 104% 0%,rgba(138,123,255,.12),transparent 55%),
+    radial-gradient(1200px 900px at 50% 118%,rgba(52,211,153,.07),transparent 60%)}
+.glow{position:fixed;width:58vmax;height:58vmax;border-radius:50%;filter:blur(110px);pointer-events:none;z-index:0;opacity:.16;will-change:transform}
+.glow.g1{background:var(--accent);top:-22vmax;left:-16vmax;animation:drift 26s ease-in-out infinite alternate}
+.glow.g2{background:var(--accent2);top:-10vmax;right:-20vmax;animation:drift 31s ease-in-out infinite alternate-reverse}
+.glow.g3{background:var(--pos);bottom:-24vmax;left:30vw;animation:drift 34s ease-in-out infinite alternate}
+@keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(3.5vmax,3vmax) scale(1.12)}}
+.grain{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.035;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+
+/* =====================================================================
+   ENTRADA ANIMADA (fade-in / slide-up)
+===================================================================== */
+.fade-init{opacity:0;transform:translateY(18px)}
+body.ready .fade-init{opacity:1;transform:none;transition:opacity .7s cubic-bezier(.2,.8,.2,1) var(--d,0s),transform .7s cubic-bezier(.2,.8,.2,1) var(--d,0s)}
+
+/* =====================================================================
+   SIDEBAR
+===================================================================== */
+@keyframes sidebarIn{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:translateX(0)}}
+.sidebar{position:fixed;top:0;left:0;bottom:0;width:var(--sidebar-w);z-index:40;
+  display:flex;flex-direction:column;gap:26px;padding:26px 18px;
+  background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.015)),var(--bg);
+  backdrop-filter:blur(28px) saturate(150%);-webkit-backdrop-filter:blur(28px) saturate(150%);
+  border-right:1px solid var(--line);animation:sidebarIn .55s cubic-bezier(.2,.8,.2,1)}
+.sidebar-brand{display:flex;align-items:center;gap:12px;padding:4px 6px}
+.sidebar-brand .mark{width:40px;height:40px;border-radius:12px;flex:none;display:grid;place-items:center;
+  font:700 1rem Unbounded;color:var(--accent-ink);
+  background:linear-gradient(135deg,#f3cf6a,#e7b93f 60%,#c99a2e);
+  box-shadow:0 8px 20px -6px rgba(231,185,63,.55)}
+.sidebar-brand b{font:700 1rem Unbounded;display:block;letter-spacing:-.01em}
+.sidebar-brand small{color:var(--mute);font-size:.74rem}
+.snav{display:flex;flex-direction:column;gap:2px}
+.snav a{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:12px;color:var(--mute);font-weight:700;font-size:.9rem;
+  transition:background .18s,color .18s,transform .18s,padding-left .18s}
+.snav a span{font-size:1.02rem;width:20px;text-align:center;flex:none}
+.snav a:hover{background:rgba(255,255,255,.05);color:var(--ink);padding-left:16px}
+.snav a:active{transform:scale(.98)}
+.sidebar-spacer{flex:1}
+.sidebar-foot{display:flex;flex-direction:column;gap:12px;padding-top:14px;border-top:1px solid var(--linefaint)}
+.cta.sm{padding:9px;font-size:.82rem;margin-top:0}
+
+.nav-scrim{position:fixed;inset:0;z-index:39;background:rgba(3,3,7,.6);backdrop-filter:blur(2px);
+  opacity:0;pointer-events:none;transition:opacity .25s}
+
+/* =====================================================================
+   SHELL / TOPBAR
+===================================================================== */
+.shell{position:relative;z-index:1;margin-left:var(--sidebar-w);padding:22px 30px 70px;max-width:1360px}
+.menubtn{display:none;width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid var(--line);font-size:1.1rem}
+.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;padding:12px 4px;margin-bottom:10px}
+.top-spacer{flex:1}
+.months{display:flex;align-items:center;gap:2px;background:rgba(255,255,255,.045);border:1px solid var(--line);border-radius:999px;padding:4px;
+  backdrop-filter:blur(14px);perspective:500px;box-shadow:var(--shadow-card)}
+.months button{width:34px;height:34px;border-radius:50%;font-size:1.15rem;color:var(--mute);transition:background .15s,color .15s,transform .15s}
+.months button:hover{background:rgba(255,255,255,.07);color:var(--ink);transform:scale(1.06)}
 .months .now{width:auto;padding:0 12px;font-size:.76rem;font-weight:700;color:var(--accent)}
-.months .mbtn{min-width:148px;text-align:center;font-weight:600;text-transform:capitalize;background:none;border:0;color:inherit;font:600 .92rem/1 'IBM Plex Mono',monospace;padding:8px 10px;border-radius:10px;transform-style:preserve-3d}
-.months .mbtn:hover{background:var(--panel2)}
-.months .mbtn.flip{animation:flipIn .32s cubic-bezier(.2,.8,.2,1)}
+.months .mbtn{min-width:158px;text-align:center;font-weight:600;text-transform:capitalize;background:none;border:0;color:inherit;
+  font:600 .92rem/1 'IBM Plex Mono',monospace;padding:8px 10px;border-radius:10px;transform-style:preserve-3d}
+.months .mbtn:hover{background:rgba(255,255,255,.06)}
+.months .mbtn.flip{animation:flipIn .34s cubic-bezier(.2,.8,.2,1)}
 @keyframes flipIn{from{transform:rotateX(85deg);opacity:.2}to{transform:rotateX(0);opacity:1}}
-.sync{display:flex;align-items:center;gap:8px;font-size:.78rem;color:var(--mute)}
+
+.sync{display:flex;align-items:center;gap:9px;font-size:.8rem;color:var(--mute);padding:2px 4px}
 .sync i{width:8px;height:8px;border-radius:50%;background:var(--warn);position:relative;flex:none}
 .sync i.on{background:var(--pos)}
 .sync i.on::after{content:'';position:absolute;inset:-5px;border-radius:50%;border:1px solid var(--pos);animation:ping 1.8s cubic-bezier(.4,0,.6,1) infinite}
 @keyframes ping{0%{transform:scale(.5);opacity:.8}100%{transform:scale(2.4);opacity:0}}
-.sync button{color:var(--mute);font-size:.76rem;font-weight:700;text-decoration:underline;text-underline-offset:3px}
 
-.banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#fb6f731a;border:1px solid #fb6f7366;color:var(--ink);border-radius:16px;padding:12px 16px;margin:16px 0 0}
+.banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  background:rgba(251,111,115,.1);border:1px solid rgba(251,111,115,.4);color:var(--ink);border-radius:16px;padding:13px 18px;margin:0 0 18px}
 .banner button{color:var(--neg);font-weight:700}
 
-/* ---------- ticket: fundo + friso perfurado no topo dos cartões ---------- */
-.hero,.card,dialog{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)}
-.hero::before,.card::before,dialog::before{content:'';position:absolute;left:18px;right:18px;top:0;height:1px;background-image:repeating-linear-gradient(to right,var(--line) 0 7px,transparent 7px 16px)}
-.hero::after,.card::after,dialog::after{content:'';position:absolute;top:-5px;left:12px;width:9px;height:9px;border-radius:50%;background:var(--bg);border:1px solid var(--line)}
-
-/* ---------- hero: extrato do mês ---------- */
-.hero{padding:30px 32px 8px;margin:20px 0 14px;opacity:0;transform:translateY(16px)}
-body.ready .hero{opacity:1;transform:none;transition:opacity .6s ease,transform .6s cubic-bezier(.2,.8,.2,1)}
-.hero p{margin:0}.k{color:var(--mute);font-weight:600;font-size:.85rem}
-.big{font-family:Unbounded,'IBM Plex Mono',monospace;font-size:clamp(2.7rem,9.5vw,5rem);font-weight:800;letter-spacing:-.02em;line-height:1.03;margin:8px 0}
-.big.pos{color:var(--pos);text-shadow:0 0 34px rgba(52,211,153,.32)}
-.big.neg{color:var(--neg);text-shadow:0 0 34px rgba(251,111,115,.32)}
-.verdict{color:var(--mute)}
-.delta{color:var(--mute);font-size:.85rem;margin-top:4px!important}
-.split{display:flex;gap:3px;height:16px;margin:26px 0 14px;border-radius:99px;overflow:hidden;background:var(--panel2)}
-.split i{min-width:5px;border-radius:5px;transition:flex 1s cubic-bezier(.2,.8,.2,1)}
-.legend{display:flex;flex-wrap:wrap;gap:8px 22px;list-style:none;margin:0;padding:0 0 22px;font-size:.85rem;color:var(--mute)}
-.legend li{display:flex;align-items:center;gap:8px}.legend i{width:9px;height:9px;border-radius:50%;flex:none}
-.legend b{color:var(--ink);font-family:'IBM Plex Mono',monospace;font-weight:600}
-
-.stats{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px dashed var(--line);margin:0 -32px;padding:16px 32px 18px}
-.stat{padding:0 18px;opacity:0;transform:translateY(8px);transition:opacity .45s ease,transform .45s ease}
-.stat:not(:first-child){border-left:1px dashed var(--line)}
-body.ready .stat{opacity:1;transform:none}
-body.ready .stat:nth-child(1){transition-delay:.05s}body.ready .stat:nth-child(2){transition-delay:.1s}
-body.ready .stat:nth-child(3){transition-delay:.15s}body.ready .stat:nth-child(4){transition-delay:.2s}
-.stat span{font-size:.78rem;color:var(--mute);font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:6px}
-.stat b{display:block;font:600 1.15rem 'IBM Plex Mono';margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stat button{color:var(--accent);font-size:.76rem;font-weight:700}
-
-.cols{display:grid;gap:14px;grid-template-columns:1.45fr 1fr;grid-template-areas:"led form" "led cats" "led bills";align-items:start}
-.card{padding:22px}
-.card h2{font-size:1rem;margin:0 0 16px;font-weight:700;padding-top:2px}
-#led{grid-area:led}#form{grid-area:form}#catcard{grid-area:cats}#billcard{grid-area:bills}
+/* =====================================================================
+   CARD BASE (glassmorphism)
+===================================================================== */
+.hero,.card,dialog{position:relative;border-radius:var(--radius);background:var(--glass);border:1px solid var(--line);
+  box-shadow:var(--shadow-card);backdrop-filter:blur(22px) saturate(150%);-webkit-backdrop-filter:blur(22px) saturate(150%);
+  transition:border-color .25s,box-shadow .25s}
+.hero::before,.card::before{content:'';position:absolute;left:0;right:0;top:0;height:1px;border-radius:var(--radius) var(--radius) 0 0;
+  background:linear-gradient(90deg,transparent,rgba(231,185,63,.55),rgba(138,123,255,.35),transparent)}
+.card:hover{border-color:var(--line-strong)}
+.card{padding:24px}
+.card h2{font-size:1rem;margin:0 0 16px;font-weight:700;padding-top:2px;letter-spacing:-.01em}
 .row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .row h2{margin:0}
-.link{color:var(--accent);font-weight:700;font-size:.82rem}
+.link{color:var(--accent);font-weight:700;font-size:.82rem;transition:opacity .15s}
+.link:hover{opacity:.75}
 
+/* =====================================================================
+   HERO — saldo do mês
+===================================================================== */
+.hero{padding:34px 36px 30px;margin:4px 0 22px}
+.hero p{margin:0}.k{color:var(--mute);font-weight:600;font-size:.85rem;letter-spacing:.01em}
+.big{font-family:Unbounded,'IBM Plex Mono',monospace;font-size:clamp(2.6rem,8.6vw,4.6rem);font-weight:800;letter-spacing:-.02em;line-height:1.05;margin:10px 0}
+.big.pos{background:linear-gradient(120deg,#34d399,#a7f3d4 60%,#34d399);-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 46px rgba(52,211,153,.32))}
+.big.neg{background:linear-gradient(120deg,#fb6f73,#ffb3b5 60%,#fb6f73);-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 46px rgba(251,111,115,.32))}
+.verdict{color:var(--mute)}
+.delta{color:var(--mute);font-size:.85rem;margin-top:4px!important}
+.split{display:flex;gap:4px;height:14px;margin:28px 0 16px;border-radius:99px;overflow:hidden;background:rgba(255,255,255,.05);padding:2px;box-shadow:inset 0 1px 3px rgba(0,0,0,.4)}
+.split i{min-width:5px;border-radius:99px;transition:flex 1s cubic-bezier(.2,.8,.2,1);filter:saturate(1.1)}
+.legend{display:flex;flex-wrap:wrap;gap:9px 24px;list-style:none;margin:0;padding:0;font-size:.85rem;color:var(--mute)}
+.legend li{display:flex;align-items:center;gap:8px}.legend i{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 8px currentColor}
+.legend b{color:var(--ink);font-family:'IBM Plex Mono',monospace;font-weight:600}
+
+/* =====================================================================
+   STATS — cards independentes
+===================================================================== */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:0 0 24px}
+.stat-card{padding:20px 22px;border-radius:20px;cursor:default;transition:transform .28s cubic-bezier(.2,.8,.2,1),box-shadow .28s,border-color .28s}
+.stat-card:hover{transform:translateY(-5px);border-color:rgba(231,185,63,.35);box-shadow:var(--shadow-pop)}
+.stat-card>span{font-size:.78rem;color:var(--mute);font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.stat-card>span button{color:var(--accent);font-size:.76rem;font-weight:700;transition:opacity .15s}
+.stat-card>span button:hover{opacity:.7}
+.stat-card>b{display:block;font:600 1.35rem 'IBM Plex Mono';margin-top:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* =====================================================================
+   GRID PRINCIPAL
+===================================================================== */
+.content-grid{display:grid;gap:22px;grid-template-columns:1.5fr 1fr;align-items:start}
+.col-left,.col-right{display:flex;flex-direction:column;gap:22px;min-width:0}
+#led{scroll-margin-top:90px}#form{scroll-margin-top:90px}#catcard{scroll-margin-top:90px}#billcard{scroll-margin-top:90px}#hero{scroll-margin-top:90px}
+
+/* =====================================================================
+   FORM / PILLS / CTA
+===================================================================== */
 .pills{display:flex;flex-wrap:wrap;gap:8px}
-.pill{padding:8px 14px;border-radius:999px;border:1px solid var(--line);color:var(--mute);font-weight:700;font-size:.85rem;background:var(--panel2);transition:background .15s,color .15s,border-color .15s}
+.pill{padding:8px 14px;border-radius:999px;border:1px solid var(--line);color:var(--mute);font-weight:700;font-size:.85rem;
+  background:rgba(255,255,255,.035);transition:background .18s,color .18s,border-color .18s,transform .12s}
 .pill.sm{padding:5px 11px;font-size:.78rem}
-.pill[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-.pill:not([aria-pressed=true]):hover{color:var(--ink);border-color:var(--accent)}
+.pill[aria-pressed=true]{background:linear-gradient(135deg,#f3cf6a,#e7b93f);border-color:transparent;color:var(--accent-ink);box-shadow:0 6px 16px -4px rgba(231,185,63,.5)}
+.pill:not([aria-pressed=true]):hover{color:var(--ink);border-color:var(--accent);transform:translateY(-1px)}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .fld{margin-top:14px}
-.cta{width:100%;margin-top:18px;padding:13px;border-radius:14px;background:var(--accent);color:var(--accent-ink);font:700 .95rem Unbounded;
-  box-shadow:0 4px 0 var(--accent-shadow);transform:translateY(0);transition:transform .1s,box-shadow .1s,filter .1s}
-.cta:hover:not(:disabled){filter:brightness(1.06)}
-.cta:active:not(:disabled){transform:translateY(3px);box-shadow:0 1px 0 var(--accent-shadow)}
-.cta.ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line);box-shadow:none}
+.cta{width:100%;margin-top:18px;padding:13px;border-radius:14px;font:700 .95rem Unbounded;color:var(--accent-ink);
+  background:linear-gradient(135deg,#f3cf6a,#e7b93f 55%,#c99a2e);
+  box-shadow:0 14px 30px -10px rgba(231,185,63,.55),0 4px 0 var(--accent-shadow);
+  transform:translateY(0);transition:transform .12s,box-shadow .12s,filter .12s}
+.cta:hover:not(:disabled){filter:brightness(1.07);transform:translateY(-1px)}
+.cta:active:not(:disabled){transform:translateY(3px);box-shadow:0 4px 10px -4px rgba(231,185,63,.4),0 1px 0 var(--accent-shadow)}
+.cta.ghost{background:rgba(255,255,255,.05);color:var(--ink);border:1px solid var(--line);box-shadow:none}
+.cta.ghost:hover:not(:disabled){background:rgba(255,255,255,.08);filter:none}
 .cta.ghost:active:not(:disabled){transform:translateY(2px)}
-.cta.danger{background:var(--neg);box-shadow:0 4px 0 #a34345}
+.cta.danger{background:linear-gradient(135deg,#ff9b9e,var(--neg));box-shadow:0 14px 30px -10px rgba(251,111,115,.5),0 4px 0 #a34345}
 
+/* =====================================================================
+   LEDGER (extrato)
+===================================================================== */
 .tools{display:flex;gap:10px;margin:16px 0 12px;flex-wrap:wrap}
 .tools input{flex:1;min-width:140px}
-.day{display:flex;justify-content:space-between;font-size:.78rem;color:var(--mute);margin:20px 0 4px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.day{display:flex;justify-content:space-between;font-size:.76rem;color:var(--mute);margin:22px 0 6px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 .day .num{font-size:.78rem;text-transform:none;letter-spacing:0}
-.item{display:grid;grid-template-columns:40px 1fr auto 28px 28px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--linefaint);
-  animation:itemIn .3s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0) * 28ms)}
+.item{display:grid;grid-template-columns:40px 1fr auto 28px 28px;align-items:center;gap:10px;margin:0 -14px;padding:10px 14px;border-radius:14px;
+  border-bottom:1px solid var(--linefaint);transition:background .18s;
+  animation:itemIn .35s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0) * 30ms)}
+.item:hover{background:rgba(255,255,255,.035)}
 .item:last-child{border-bottom:0}
-@keyframes itemIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
-.ic{width:40px;height:40px;border-radius:50%;background:var(--panel2);display:grid;place-items:center;font-size:1.1rem}
+@keyframes itemIn{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:translateY(0)}}
+.ic{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.06);display:grid;place-items:center;font-size:1.1rem;border:1px solid var(--linefaint)}
 .who{min-width:0}
 .who b{display:block;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .who small{color:var(--mute);font-size:.8rem;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tag{display:inline-block;font-size:.65rem;font-weight:700;color:var(--accent);border:1px solid var(--line);border-radius:99px;padding:0 7px;margin-left:6px;vertical-align:1px}
+.tag{display:inline-block;font-size:.63rem;font-weight:700;color:var(--accent);border:1px solid rgba(231,185,63,.4);border-radius:99px;padding:1px 7px;margin-left:6px;vertical-align:1px}
 .item .num{font-weight:600;font-size:.92rem;white-space:nowrap;font-family:'IBM Plex Mono',monospace}
-.x{color:var(--mute);border-radius:50%;width:28px;height:28px;font-size:.85rem;transition:background .15s,color .15s}
-.x:hover{background:#fb6f7322;color:var(--neg)}
-.x.ed:hover{background:#e7b93f22;color:var(--accent)}
+.x{color:var(--mute);border-radius:50%;width:28px;height:28px;font-size:.85rem;transition:background .15s,color .15s,transform .15s}
+.x:hover{background:rgba(251,111,115,.16);color:var(--neg);transform:scale(1.08)}
+.x.ed:hover{background:rgba(231,185,63,.16);color:var(--accent)}
 .empty{color:var(--mute);font-size:.9rem;margin:8px 0}
 
-.bar{margin-bottom:12px;animation:itemIn .3s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0) * 40ms)}
-.bar div{display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:5px}
-.bar i{display:block;height:7px;border-radius:99px;background:var(--neg);transition:width .5s cubic-bezier(.2,.8,.2,1)}
-.bill{display:grid;grid-template-columns:34px 1fr 88px 28px 28px;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--linefaint);
-  animation:itemIn .3s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0) * 28ms)}
+/* =====================================================================
+   CATEGORIAS (gráfico simulado em barras)
+===================================================================== */
+.bar{margin-bottom:14px;animation:itemIn .35s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0) * 55ms)}
+.bar div{display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:6px}
+.bar i{display:block;height:8px;border-radius:99px;background:linear-gradient(90deg,var(--accent2),#c8bfff);
+  box-shadow:0 0 14px -3px rgba(138,123,255,.6);transition:width .7s cubic-bezier(.2,.8,.2,1)}
+
+/* =====================================================================
+   CONTAS FIXAS
+===================================================================== */
+.bill{display:grid;grid-template-columns:34px 1fr 88px 28px 28px;align-items:center;gap:10px;margin:0 -14px;padding:9px 14px;border-radius:14px;
+  border-bottom:1px solid var(--linefaint);transition:background .18s;
+  animation:itemIn .35s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0) * 30ms)}
+.bill:hover{background:rgba(255,255,255,.035)}
+.bill:last-child{border-bottom:0}
 .bill .who.off b{color:var(--mute);text-decoration:line-through}
 .bill .who.soon b{color:var(--mute)}
 .bill .who small.warn{color:var(--warn)}
 .bill .amt{text-align:right;padding:7px 9px;font-family:'IBM Plex Mono',monospace;font-size:.85rem}
 .bill .doneicon{width:34px;text-align:center;font-size:1.05rem}
 .bill .paidcell{text-align:right;font:600 .88rem 'IBM Plex Mono';color:var(--mute);white-space:nowrap}
-.bill.done{opacity:.8}
+.bill.done{opacity:.75}
 .addb2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
 details.donewrap summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:.82rem;list-style:none}
 details.donewrap summary::-webkit-details-marker{display:none}
 details.donewrap summary::before{content:'▸ ';display:inline-block;transition:transform .15s}
 details.donewrap[open] summary::before{transform:rotate(90deg)}
-.sw{appearance:none;width:38px;height:22px;padding:0;border-radius:99px;position:relative;cursor:pointer;background:var(--panel2);border:1px solid var(--line);transition:background .15s}
-.sw::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--mute);transition:left .2s}
+.sw{appearance:none;width:38px;height:22px;padding:0;border-radius:99px;position:relative;cursor:pointer;background:rgba(255,255,255,.08);border:1px solid var(--line);transition:background .18s}
+.sw::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--mute);transition:left .2s,background .18s}
 .sw:checked{background:var(--accent);border-color:var(--accent)}.sw:checked::after{left:18px;background:var(--accent-ink)}
 .addb{display:grid;grid-template-columns:1fr 96px auto;gap:8px;margin-top:14px}
-.addb button{padding:0 16px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);font-weight:700}
-.tot{display:flex;justify-content:space-between;margin-top:12px;font-weight:700;font-family:'IBM Plex Mono',monospace}
+.addb button{padding:0 16px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid var(--line);font-weight:700;transition:background .15s,border-color .15s}
+.addb button:hover{background:rgba(255,255,255,.09);border-color:var(--accent)}
+.tot{display:flex;justify-content:space-between;margin-top:14px;font-weight:700;font-family:'IBM Plex Mono',monospace;padding-top:14px;border-top:1px dashed var(--line)}
 .hint{color:var(--mute);font-size:.78rem;margin:8px 0 0}
 
-/* ---------- código de barras decorativo ---------- */
-.barcode{height:26px;margin:22px auto 0;max-width:220px;opacity:.5;
-  background-image:repeating-linear-gradient(to right,var(--ink) 0 2px,transparent 2px 4px,var(--ink) 4px 5px,transparent 5px 9px,var(--ink) 9px 12px,transparent 12px 14px,var(--ink) 14px 15px,transparent 15px 19px,var(--ink) 19px 21px,transparent 21px 24px,var(--ink) 24px 27px,transparent 27px 30px)}
-
-dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:22px;padding:24px;width:min(380px,92vw)}
-dialog[open]{animation:dialogIn .22s cubic-bezier(.2,.8,.2,1)}
-dialog::backdrop{background:#050509cc;animation:backdropIn .22s ease}
-@keyframes dialogIn{from{opacity:0;transform:scale(.94) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+/* =====================================================================
+   DIALOGS (modais orgânicos)
+===================================================================== */
+dialog{color:var(--ink);border-radius:26px;padding:26px;width:min(400px,92vw);box-shadow:var(--shadow-pop)}
+dialog[open]{animation:dialogIn .38s cubic-bezier(.34,1.56,.64,1)}
+dialog::backdrop{background:rgba(3,3,8,.7);backdrop-filter:blur(6px);animation:backdropIn .3s ease}
+@keyframes dialogIn{from{opacity:0;transform:scale(.9) translateY(14px)}to{opacity:1;transform:scale(1) translateY(0)}}
 @keyframes backdropIn{from{opacity:0}to{opacity:1}}
-dialog h2{margin:0 0 14px;font-size:1.05rem;font-weight:700}
+dialog h2{margin:0 0 14px;font-size:1.08rem;font-weight:700}
 dialog p{color:var(--mute);margin:0}
 
-#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,30px) scale(.92);background:var(--ink);color:#141005;padding:11px 18px;border-radius:99px;font-weight:700;opacity:0;pointer-events:none;transition:.3s cubic-bezier(.34,1.56,.64,1);z-index:99;display:flex;align-items:center;gap:14px;max-width:92vw}
-#toast.show{opacity:1;transform:translate(-50%,0) scale(1);pointer-events:auto}#toast.err{background:var(--neg);color:#2a0d0e}
+/* =====================================================================
+   TOAST
+===================================================================== */
+#toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,30px) scale(.92);
+  background:var(--ink);color:#141005;padding:12px 20px;border-radius:99px;font-weight:700;opacity:0;pointer-events:none;
+  transition:.35s cubic-bezier(.34,1.56,.64,1);z-index:99;display:flex;align-items:center;gap:14px;max-width:92vw;
+  box-shadow:0 20px 50px -14px rgba(0,0,0,.6),0 0 0 1px rgba(231,185,63,.25)}
+#toast.show{opacity:1;transform:translate(-50%,0) scale(1);pointer-events:auto}
+#toast.err{background:var(--neg);color:#2a0d0e;box-shadow:0 20px 50px -14px rgba(0,0,0,.6)}
 #toast button{color:var(--accent-shadow);font-weight:800;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
 #toast.err button{color:#2a0d0e}
 
+/* =====================================================================
+   LOGIN
+===================================================================== */
 #login{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;padding:20px;z-index:50}
-#login form{width:min(380px,100%);background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:28px}
-#login h1{margin:0 0 4px;font-size:1.3rem;font-family:Unbounded}
+#login::before{content:'';position:fixed;inset:0;
+  background:radial-gradient(900px 600px at 50% 0%,rgba(231,185,63,.14),transparent 60%)}
+#login form{position:relative;width:min(380px,100%);background:var(--glass-strong);border:1px solid var(--line);border-radius:26px;padding:32px;
+  backdrop-filter:blur(24px);box-shadow:var(--shadow-pop)}
+.login-mark{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font:700 1.1rem Unbounded;color:var(--accent-ink);
+  background:linear-gradient(135deg,#f3cf6a,#e7b93f 60%,#c99a2e);box-shadow:0 10px 24px -6px rgba(231,185,63,.55);margin-bottom:16px}
+#login h1{margin:0 0 4px;font-size:1.35rem;font-family:Unbounded}
 #login .err{color:var(--neg);font-size:.85rem;min-height:1.2em;margin:12px 0 0}
 
-@media(max-width:860px){
-  .cols{grid-template-columns:1fr;grid-template-areas:"form" "led" "cats" "bills"}
-  .hero{padding:24px 20px 6px}
-  .stats{grid-template-columns:1fr 1fr;margin:0 -20px;row-gap:16px}
-  .stat:nth-child(3),.stat:nth-child(4){padding-top:14px}
-  .stat:nth-child(odd){border-left:0}
-  .stat:nth-child(3),.stat:nth-child(4){border-top:1px dashed var(--line)}
-  .months .mbtn{min-width:108px}
-  .item{grid-template-columns:36px 1fr auto 28px 28px;gap:8px}
-  .bill{grid-template-columns:32px 1fr auto 26px 26px;gap:8px}
+/* =====================================================================
+   RESPONSIVO
+===================================================================== */
+@media(max-width:1180px){
+  .content-grid{grid-template-columns:1fr}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:960px){
+  :root{--sidebar-w:260px}
+  .sidebar{transform:translateX(-100%);box-shadow:var(--shadow-pop)}
+  body.nav-open .sidebar{transform:translateX(0)}
+  body.nav-open .nav-scrim{opacity:1;pointer-events:auto}
+  .shell{margin-left:0;padding:16px 16px 70px}
+  .menubtn{display:grid;place-items:center}
+  .hero{padding:26px 22px 24px}
+  .months .mbtn{min-width:120px}
+}
+@media(max-width:600px){
+  .stats-grid{grid-template-columns:1fr 1fr;gap:12px}
+  .stat-card{padding:16px 16px}
+  .item{grid-template-columns:36px 1fr auto 26px 26px;gap:8px}
+  .bill{grid-template-columns:32px 1fr auto 24px 24px;gap:8px}
   .ic{width:36px;height:36px}
+  .g2{grid-template-columns:1fr}
 }
 @media(prefers-reduced-motion:reduce){
   *{transition:none!important;animation:none!important}
-  .glow{display:none}
-  .hero,.stat{opacity:1!important;transform:none!important}
+  .glow,.grain{display:none}
+  .fade-init{opacity:1!important;transform:none!important}
 }
 </style>
 </head>
 <body>
 <div class="glow g1" aria-hidden="true"></div>
 <div class="glow g2" aria-hidden="true"></div>
+<div class="glow g3" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
 
 <div id="login" hidden>
   <form onsubmit="doLogin(event)">
+    <div class="login-mark" aria-hidden="true">R$</div>
     <h1>Meu Financeiro</h1>
-    <p class="verdict" style="margin:0 0 18px">Entre para ver e registrar suas finanças.</p>
+    <p class="verdict" style="margin:0 0 20px">Entre para ver e registrar suas finanças.</p>
     <label for="l-email">E-mail</label>
     <input id="l-email" type="email" autocomplete="username" required>
     <div class="fld"><label for="l-pass">Senha</label>
@@ -221,9 +355,30 @@ dialog p{color:var(--mute);margin:0}
   </form>
 </div>
 
-<div class="wrap" id="app">
+<div class="nav-scrim" onclick="toggleSidebar(false)" aria-hidden="true"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <span class="mark" aria-hidden="true">R$</span>
+    <div><b>Meu Financeiro</b><small>Grupo Star Motos · painel pessoal</small></div>
+  </div>
+  <nav class="snav" aria-label="Seções do painel">
+    <a href="#hero"><span aria-hidden="true">📊</span>Visão geral</a>
+    <a href="#form"><span aria-hidden="true">➕</span>Nova movimentação</a>
+    <a href="#led"><span aria-hidden="true">🧾</span>Extrato</a>
+    <a href="#catcard"><span aria-hidden="true">🗂️</span>Categorias</a>
+    <a href="#billcard"><span aria-hidden="true">📌</span>Contas fixas</a>
+  </nav>
+  <div class="sidebar-spacer"></div>
+  <div class="sidebar-foot">
+    <div class="sync"><i id="dot"></i><span id="sync">Conectando…</span></div>
+    <button id="logout" class="cta ghost sm" onclick="doLogout()" hidden>Sair</button>
+  </div>
+</aside>
+
+<div class="shell" id="app">
   <header class="top">
-    <div class="brand"><span class="mark" aria-hidden="true">R$</span><div><b>Meu Financeiro</b><small>Grupo Star Motos · painel pessoal</small></div></div>
+    <button class="menubtn" onclick="toggleSidebar()" aria-label="Abrir menu">☰</button>
     <nav class="months" aria-label="Mês">
       <button onclick="shift(-1)" aria-label="Mês anterior">‹</button>
       <button type="button" class="mbtn" id="month-label" onclick="openJump()" aria-label="Escolher outro mês" title="Escolher outro mês"></button>
@@ -231,7 +386,7 @@ dialog p{color:var(--mute);margin:0}
       <button class="now" id="btn-now" onclick="goToday()" hidden>Hoje</button>
       <button onclick="shift(1)" aria-label="Próximo mês">›</button>
     </nav>
-    <div class="sync"><i id="dot"></i><span id="sync">Conectando…</span><button id="logout" onclick="doLogout()" hidden>Sair</button></div>
+    <div class="top-spacer"></div>
   </header>
 
   <div class="banner" id="banner" role="alert" hidden>
@@ -239,74 +394,81 @@ dialog p{color:var(--mute);margin:0}
     <button onclick="loadAll()">Tentar de novo</button>
   </div>
 
-  <section class="hero">
+  <section class="hero fade-init" id="hero" style="--d:0s">
     <p class="k" id="hero-k">Sobra este mês</p>
     <div class="big" id="balance">—</div>
     <p class="verdict" id="verdict"></p>
     <p class="delta" id="delta"></p>
     <div class="split" id="split"></div>
     <ul class="legend" id="legend"></ul>
-    <div class="stats">
-      <div class="stat"><span title="Valor fixo: entra todo mês sozinho, sem precisar lançar de novo">Salário fixo <button onclick="openSalary()">Editar</button></span><b id="s-sal">—</b></div>
-      <div class="stat"><span>Entradas e acréscimos</span><b class="pos" id="s-in">—</b></div>
-      <div class="stat"><span>Contas fixas</span><b class="neg" id="s-bills">—</b></div>
-      <div class="stat"><span>Compras e retiradas</span><b class="neg" id="s-out">—</b></div>
-    </div>
   </section>
 
-  <div class="cols">
-    <form class="card" id="form" onsubmit="submitTx(event)" novalidate>
-      <h2>Nova movimentação</h2>
-      <div class="pills" id="types"></div>
-      <div class="g2 fld">
-        <div><label for="f-amount">Valor (R$)</label><input id="f-amount" inputmode="decimal" placeholder="0,00" autocomplete="off" required></div>
-        <div><label for="f-date">Data</label><input id="f-date" type="date"></div>
-      </div>
-      <div class="fld"><label for="f-cat">Categoria</label><input id="f-cat" list="cat-list" placeholder="Escolha abaixo ou digite outra" autocomplete="off" maxlength="40"></div>
-      <datalist id="cat-list"></datalist>
-      <div class="pills fld" id="chips"></div>
-      <div class="fld"><label for="f-desc">Descrição (opcional)</label><input id="f-desc" placeholder="Detalhes rápidos" autocomplete="off" maxlength="120"></div>
-      <button class="cta" type="submit" id="submit">Registrar</button>
-    </form>
-
-    <section class="card" id="led">
-      <div class="row"><h2>Movimentações</h2><button class="link" onclick="exportCsv()">Exportar CSV</button></div>
-      <div class="tools">
-        <input id="q" type="search" placeholder="Buscar por categoria ou descrição" oninput="q=this.value;renderLedger()" aria-label="Buscar">
-      </div>
-      <div class="pills" id="filters"></div>
-      <div id="ledger"></div>
-    </section>
-
-    <section class="card" id="catcard">
-      <h2>Para onde foi o dinheiro</h2>
-      <div id="cats"></div>
-    </section>
-
-    <section class="card" id="billcard">
-      <h2>Contas fixas</h2>
-      <div id="bills"></div>
-      <div class="addb">
-        <input id="nb-name" placeholder="Nome da conta" aria-label="Nome da conta" maxlength="60" onkeydown="if(event.key==='Enter')addBill()">
-        <input id="nb-amt" inputmode="decimal" placeholder="Valor" aria-label="Valor da conta" onkeydown="if(event.key==='Enter')addBill()">
-        <button id="nb-btn" onclick="addBill()">Adicionar</button>
-      </div>
-      <div class="addb2">
-        <input id="nb-total" inputmode="numeric" placeholder="Parcelas (opcional)" aria-label="Número de parcelas" maxlength="3" oninput="updateNbHint()" onkeydown="if(event.key==='Enter')addBill()">
-        <input id="nb-due" inputmode="numeric" placeholder="Dia venc. (opcional)" aria-label="Dia de vencimento" maxlength="2" onkeydown="if(event.key==='Enter')addBill()">
-      </div>
-      <p class="hint" id="nb-hint" hidden></p>
-      <p class="hint">Tem prazo (financiamento, parcelado)? Informe as parcelas: a conta some sozinha quando quitar. Se o nome já existir, você escolhe se quer atualizar.</p>
-      <div class="tot"><span>Total ativo</span><span class="num" id="bills-total">—</span></div>
-      <div id="bills-done-wrap" hidden style="margin-top:12px">
-        <details class="donewrap">
-          <summary>Contas quitadas</summary>
-          <div id="bills-done" style="margin-top:6px"></div>
-        </details>
-      </div>
-    </section>
+  <div class="stats-grid">
+    <div class="stat-card fade-init" style="--d:.06s">
+      <span title="Valor fixo: entra todo mês sozinho, sem precisar lançar de novo">Salário fixo <button onclick="openSalary()">Editar</button></span>
+      <b id="s-sal">—</b>
+    </div>
+    <div class="stat-card fade-init" style="--d:.11s"><span>Entradas e acréscimos</span><b class="pos" id="s-in">—</b></div>
+    <div class="stat-card fade-init" style="--d:.16s"><span>Contas fixas</span><b class="neg" id="s-bills">—</b></div>
+    <div class="stat-card fade-init" style="--d:.21s"><span>Compras e retiradas</span><b class="neg" id="s-out">—</b></div>
   </div>
-  <div class="barcode" aria-hidden="true"></div>
+
+  <div class="content-grid">
+    <div class="col-left">
+      <section class="card fade-init" id="led" style="--d:.12s">
+        <div class="row"><h2>Movimentações</h2><button class="link" onclick="exportCsv()">Exportar CSV</button></div>
+        <div class="tools">
+          <input id="q" type="search" placeholder="Buscar por categoria ou descrição" oninput="q=this.value;renderLedger()" aria-label="Buscar">
+        </div>
+        <div class="pills" id="filters"></div>
+        <div id="ledger"></div>
+      </section>
+    </div>
+
+    <div class="col-right">
+      <form class="card fade-init" id="form" onsubmit="submitTx(event)" novalidate style="--d:.06s">
+        <h2>Nova movimentação</h2>
+        <div class="pills" id="types"></div>
+        <div class="g2 fld">
+          <div><label for="f-amount">Valor (R$)</label><input id="f-amount" inputmode="decimal" placeholder="0,00" autocomplete="off" required></div>
+          <div><label for="f-date">Data</label><input id="f-date" type="date"></div>
+        </div>
+        <div class="fld"><label for="f-cat">Categoria</label><input id="f-cat" list="cat-list" placeholder="Escolha abaixo ou digite outra" autocomplete="off" maxlength="40"></div>
+        <datalist id="cat-list"></datalist>
+        <div class="pills fld" id="chips"></div>
+        <div class="fld"><label for="f-desc">Descrição (opcional)</label><input id="f-desc" placeholder="Detalhes rápidos" autocomplete="off" maxlength="120"></div>
+        <button class="cta" type="submit" id="submit">Registrar</button>
+      </form>
+
+      <section class="card fade-init" id="catcard" style="--d:.17s">
+        <h2>Para onde foi o dinheiro</h2>
+        <div id="cats"></div>
+      </section>
+
+      <section class="card fade-init" id="billcard" style="--d:.22s">
+        <h2>Contas fixas</h2>
+        <div id="bills"></div>
+        <div class="addb">
+          <input id="nb-name" placeholder="Nome da conta" aria-label="Nome da conta" maxlength="60" onkeydown="if(event.key==='Enter')addBill()">
+          <input id="nb-amt" inputmode="decimal" placeholder="Valor" aria-label="Valor da conta" onkeydown="if(event.key==='Enter')addBill()">
+          <button id="nb-btn" onclick="addBill()">Adicionar</button>
+        </div>
+        <div class="addb2">
+          <input id="nb-total" inputmode="numeric" placeholder="Parcelas (opcional)" aria-label="Número de parcelas" maxlength="3" oninput="updateNbHint()" onkeydown="if(event.key==='Enter')addBill()">
+          <input id="nb-due" inputmode="numeric" placeholder="Dia venc. (opcional)" aria-label="Dia de vencimento" maxlength="2" onkeydown="if(event.key==='Enter')addBill()">
+        </div>
+        <p class="hint" id="nb-hint" hidden></p>
+        <p class="hint">Tem prazo (financiamento, parcelado)? Informe as parcelas: a conta some sozinha quando quitar. Se o nome já existir, você escolhe se quer atualizar.</p>
+        <div class="tot"><span>Total ativo</span><span class="num" id="bills-total">—</span></div>
+        <div id="bills-done-wrap" hidden style="margin-top:12px">
+          <details class="donewrap">
+            <summary>Contas quitadas</summary>
+            <div id="bills-done" style="margin-top:6px"></div>
+          </details>
+        </div>
+      </section>
+    </div>
+  </div>
 </div>
 
 <dialog id="dlg" aria-labelledby="dlg-t">
@@ -410,6 +572,14 @@ let type = 'compra', flt = 'all', q = '';
 let formKey = uid(); // identifica ESTE preenchimento do formulário (anti-duplicidade)
 let editingId = null, loadSeq = 0, wasDown = false;
 const busy = { tx: false, bill: false, edit: false };
+
+/* ---------- navegação lateral (mobile) ---------- */
+function toggleSidebar(force) {
+  const open = typeof force === 'boolean' ? force : !document.body.classList.contains('nav-open');
+  document.body.classList.toggle('nav-open', open);
+}
+document.addEventListener('click', (e) => { if (e.target.closest('.snav a')) toggleSidebar(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') toggleSidebar(false); });
 
 /* ---------- avisos e diálogos ---------- */
 function toast(msg, o = {}) {
