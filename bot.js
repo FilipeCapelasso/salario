@@ -557,17 +557,17 @@ bot.on('message', async (msg) => {
 const HELP = `👋 <b>Comandos</b>
 
 <b>Registrar</b>
-<code>/compra [valor] [descrição]</code> — registra uma compra ou retirada
-<code>/acrescimo [valor] [descrição]</code> — registra um valor a mais
+/compra [valor] [descrição] — registra uma compra ou retirada
+/acrescimo [valor] [descrição] — registra um valor a mais
 
 <b>Consultar</b>
-<code>/saldo</code> — saldo rápido do mês com barrinha
-<code>/resumo</code> — resumo completo linha a linha
+/saldo — saldo rápido do mês com barrinha
+/resumo — resumo completo linha a linha
 
 <b>Configurar</b>
-<code>/conta [nome] [valor]</code> — cria ou atualiza uma conta fixa
-<code>/conta Celular 418 12x</code> — parcelada em 12x (some sozinha ao quitar)
-<code>/salario [valor]</code> — altera o salário fixo
+/conta [nome] [valor] — cria ou atualiza uma conta fixa
+/conta Celular 418 12x — parcelada em 12x (some sozinha ao quitar)
+/salario [valor] — altera o salário fixo
 
 💡 Mande só um número (ex.: <code>45,90</code>) que já vira uma compra. Errou? Toque em ↩️ Desfazer na confirmação.`;
 
@@ -856,7 +856,7 @@ bot.onText(cmd('salario'), guarded(async (msg, match) => {
     if (error) throw error;
     await bot.sendMessage(chatId,
       `👔 <b>Salário fixo:</b> ${brl(data ? data.salary : 0)}\n\n` +
-      `Para alterar: <code>/salario 2800</code>\nSaldo do mês: /saldo`,
+      `Para alterar: /salario 2800\nSaldo do mês: /saldo`,
       html);
     return;
   }
